@@ -36,7 +36,7 @@ def test_removes_build_credentials_and_replaces_the_vagrant_key(
     assert standard_key not in keys
     assert (
         first_host.run(
-            f"sudo grep -R -l image-factory-build /var/lib/cloud /etc/cloud /home/{TARGET.ssh_username} /root 2>/dev/null"
+            f"sudo grep --devices=skip -R -l image-factory-build /var/lib/cloud /etc/cloud /home/{TARGET.ssh_username} /root 2>/dev/null"
         ).rc
         == 1
     )
