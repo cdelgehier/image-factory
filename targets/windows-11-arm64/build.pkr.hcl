@@ -46,6 +46,12 @@ source "qemu" "windows" {
   memory           = 8192
   headless         = true
   vga              = "none"
+  # Packer must skip BIOS boot ordering when QEMU uses ARM64 UEFI firmware.
+  efi_boot          = true
+  efi_firmware_code = var.firmware
+  efi_firmware_vars = var.firmware_vars
+  # Each Vagrant clone creates fresh firmware state; package only the disk.
+  efi_drop_efivars = true
   communicator     = "winrm"
   winrm_port       = 5986
   winrm_username   = "vagrant"
@@ -63,7 +69,7 @@ source "qemu" "windows" {
   qemuargs = [
     ["-netdev", "user,id=user.0,restrict=on,hostfwd=tcp:127.0.0.1:{{ .SSHHostPort }}-:5986"],
     ["-drive", "if=pflash,format=raw,readonly=on,file=${var.firmware}"],
-    ["-drive", "if=pflash,format=raw,file=${var.firmware_vars}"],
+    ["-drive", "if=pflash,format=raw,file={{ .OutputDir }}/efivars.fd"],
     ["-drive", "if=none,id=disk0,format=qcow2,file={{ .OutputDir }}/{{ .Name }}"],
     ["-drive", "if=none,id=install,media=cdrom,readonly=on,file=${var.iso_path}"],
     ["-drive", "if=none,id=seed,media=cdrom,readonly=on,file=${var.seed_iso}"],
