@@ -35,14 +35,29 @@ def test_build_command_checks_prerequisites_before_preparing_media() -> None:
     )
     assert result.returncode != 0
     assert expected in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_source_checksum_is_required_before_preparing_any_media(tmp_path: Path) -> None:
     iso = tmp_path / "windows.iso"
     iso.write_bytes(b"other media")
-    with pytest.raises(ValueError, match="checksum"):
+    expected = "sha256:" + "ab" * 32
+    actual = "sha256:" + hashlib.sha256(iso.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="checksum") as error:
+        prepare.verify_iso(iso, expected)
+    assert str(iso) in str(error.value)
+    assert f"Expected: {expected}" in str(error.value)
+    assert f"Actual: {actual}" in str(error.value)
+    prepare.verify_iso(iso, actual)
+
+
+def test_missing_iso_is_reported_separately_from_a_checksum_error(
+    tmp_path: Path,
+) -> None:
+    iso = tmp_path / "missing.iso"
+    with pytest.raises(FileNotFoundError, match="ISO file not found") as error:
         prepare.verify_iso(iso, "sha256:" + "ab" * 32)
-    prepare.verify_iso(iso, "sha256:" + hashlib.sha256(iso.read_bytes()).hexdigest())
+    assert str(iso) in str(error.value)
 
 
 def test_answer_file_uses_arm64_pro_and_escapes_the_temporary_password() -> None:

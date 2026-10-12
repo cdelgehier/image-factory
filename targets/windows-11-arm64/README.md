@@ -28,18 +28,22 @@ vagrant plugin install vagrant-qemu --plugin-version 0.6.3
 ```
 
 Download the official [Microsoft Windows 11 ARM64 ISO](https://www.microsoft.com/en-us/software-download/windows11arm64).
-The current pin is English (United States), build `26300.9457`:
+Choose English (United States). The current pin is build `26300.9457`:
 
 ```text
 Windows11_Client_arm64_en-us_26300_9457.iso
-SHA-256: dbf606ceb4ce1390f9f21ad1d96331848bc6b701cbab0012785881a1a1c0ec63
+SHA-256: 8992f2d2cfd2fa647e579e9eb31fc21f34da8333c29b6170fde17d2ed6623e9c
 ```
+
+This checksum was calculated from Microsoft's complete en-US ISO download.
+The setup files and Pro image metadata confirm English (United States), ARM64
+and build `26300.9457`.
 
 Microsoft's download links expire, so the recipe requires a file path instead
 of saving a signed URL. It rejects an ISO whose checksum differs from
-`source.pkrvars.json`. For newer media, check Microsoft's published checksum
-and update the source build and checksum together. Source updates are manual
-for this target.
+`source.pkrvars.json`. For newer media, download the ISO from Microsoft, confirm
+its language, architecture and build, then calculate its SHA-256. Update the
+source build and checksum together. Source updates are manual for this target.
 
 The build downloads a pinned [UTM driver ISO](https://docs.getutm.app/guest-support/windows/)
 and checks its SHA-256 before extracting the Windows 11 ARM64 network driver.
