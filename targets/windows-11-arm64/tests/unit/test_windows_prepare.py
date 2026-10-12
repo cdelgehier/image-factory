@@ -1,8 +1,10 @@
 import hashlib
+import io
 import json
 import os
 import platform
 import subprocess
+import tarfile
 import xml.etree.ElementTree as ET
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -158,16 +160,26 @@ class FakeBuildTools:
         self.password = ""
         self.command: list[str] = []
         self.answer = ""
+        self.driver_files: dict[str, bytes] = {}
+        self.run_process = subprocess.run
 
     def run(self, command: list[str], **options: object) -> None:
-        """Create a seed placeholder and simulate Packer's success or failure."""
+        """Use real extraction but avoid starting a Windows installation."""
 
         import subprocess
         from typing import cast
 
+        if command[0] == "tar":
+            self.run_process(command, check=True)
         if command[0] == "hdiutil":
             Path(command[command.index("-o") + 1]).touch()
-            self.answer = (Path(command[-1]) / "Autounattend.xml").read_text()
+            seed = Path(command[-1])
+            self.answer = (seed / "Autounattend.xml").read_text()
+            self.driver_files = {
+                str(path.relative_to(seed)): path.read_bytes()
+                for path in (seed / "Drivers").rglob("*")
+                if path.is_file()
+            }
         if command[:2] == ["packer", "build"]:
             environment = cast(dict[str, str], options["env"])
             self.password = environment["PKR_VAR_build_password"]
@@ -176,11 +188,11 @@ class FakeBuildTools:
                 raise subprocess.CalledProcessError(1, command)
 
 
-@pytest.mark.parametrize("fail", [False, True])
-def test_private_setup_files_are_removed_after_packer_success_or_failure(
+@pytest.mark.parametrize("failure", [None, "extraction", "packer"])
+def test_build_resolves_driver_links_and_removes_private_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    fail: bool,
+    failure: str | None,
 ) -> None:
     import shutil
     import subprocess
@@ -198,28 +210,56 @@ def test_private_setup_files_are_removed_after_packer_success_or_failure(
     firmware = tmp_path / "qemu/share/qemu"
     firmware.mkdir(parents=True)
     (firmware / "edk2-arm-vars.fd").write_bytes(b"fresh firmware state")
-    tools = FakeBuildTools(fail)
+    drivers = tmp_path / "drivers.iso"
+    driver_files = {
+        "netkvm.inf": b"ARM64 network configuration",
+        "netkvm.cat": b"signed driver catalogue",
+        "netkvm.sys": b"ARM64 network driver",
+    }
+    # UTM shares driver files across Windows releases through hard links.
+    with tarfile.open(drivers, "w") as archive:
+        for name, content in driver_files.items():
+            original = tarfile.TarInfo(f"Drivers/NetKVM/2k25/ARM64/{name}")
+            original.size = len(content)
+            archive.addfile(original, io.BytesIO(content))
+            link = tarfile.TarInfo(f"Drivers/NetKVM/w11/ARM64/{name}")
+            link.type = tarfile.LNKTYPE
+            link.linkname = original.name
+            archive.addfile(link)
+        unrelated = tarfile.TarInfo("Drivers/NetKVM/w11/amd64/netkvm.sys")
+        unrelated.size = len(b"x64 driver")
+        archive.addfile(unrelated, io.BytesIO(b"x64 driver"))
+    if failure == "extraction":
+        drivers.write_bytes(b"invalid driver archive")
+    tools = FakeBuildTools(failure == "packer")
     monkeypatch.setattr(prepare, "load_target", Mock(return_value=target))
     monkeypatch.setattr(prepare.platform, "system", Mock(return_value="Darwin"))
     monkeypatch.setattr(prepare.platform, "machine", Mock(return_value="arm64"))
-    monkeypatch.setattr(
-        prepare, "driver_media", Mock(return_value=tmp_path / "drivers.iso")
-    )
+    monkeypatch.setattr(prepare, "driver_media", Mock(return_value=drivers))
     monkeypatch.setattr(
         prepare.subprocess, "check_output", Mock(return_value=str(tmp_path / "qemu"))
     )
     monkeypatch.setattr(prepare.subprocess, "run", tools.run)
     monkeypatch.setenv("WINDOWS_ISO", str(iso))
     monkeypatch.delenv("PACKER_LOG", raising=False)
-    if fail:
+    if failure:
         with pytest.raises(subprocess.CalledProcessError):
             prepare.build()
     else:
         prepare.build()
     assert list((tmp_path / ".build").iterdir()) == []
+    assert iso.read_bytes() == b"Windows installation media"
+    if failure == "extraction":
+        assert tools.answer == ""
+        assert tools.password == ""
+        assert tools.command == []
+        return
     assert tools.password in tools.answer
     assert all(tools.password not in argument for argument in tools.command)
-    assert iso.read_bytes() == b"Windows installation media"
+    assert tools.driver_files == {
+        f"Drivers/NetKVM/w11/ARM64/{name}": content
+        for name, content in driver_files.items()
+    }
     assert (tmp_path / "reports/windows-11-arm64-packer.log").is_file()
 
 

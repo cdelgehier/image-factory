@@ -121,11 +121,12 @@ def build() -> None:
         (seed / "image-factory-media").touch()
         for name in ("bootstrap.ps1", "configure-winrm.ps1"):
             shutil.copyfile(target.directory / name, seed / name)
-        # Windows has an inbox NVMe driver; only the VirtIO network driver is needed.
-        subprocess.run(
-            ["tar", "-xf", str(drivers), "-C", str(seed), "Drivers/NetKVM/w11/ARM64"],
-            check=True,
-        )
+        # UTM uses hard links across Windows versions, so tar needs the full ISO.
+        with tempfile.TemporaryDirectory(prefix="drivers-", dir=private) as driver_dir:
+            subprocess.run(["tar", "-xf", str(drivers), "-C", driver_dir], check=True)
+            # Copy only ARM64 network files; Windows already has an NVMe driver.
+            network = Path("Drivers/NetKVM/w11/ARM64")
+            shutil.copytree(Path(driver_dir) / network, seed / network)
         seed_iso = private / "seed.iso"
         subprocess.run(
             [
