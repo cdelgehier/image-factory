@@ -75,10 +75,7 @@ Vagrant.configure("2") do |config|
   config.vm.box = "{box_name}"
   config.vm.box_architecture = "arm64"
   config.vm.box_check_update = false
-  config.ssh.username = "debian"
-  config.ssh.insert_key = true
   config.vm.boot_timeout = 2700
-  config.vm.cloud_init :user_data, content: "#cloud-config\\npreserve_hostname: false\\n"
   config.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".vagrant/", "*.log", "*.ssh-config"]
   [ ["first", "192.168.105.51", "listen=127.0.0.1:{stream_port}", {first_port}],
     ["second", "192.168.105.52", "connect=127.0.0.1:{stream_port}", {second_port}] ].each do |name, ip, socket, ssh_port|
