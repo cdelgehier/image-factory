@@ -1,6 +1,27 @@
 import pytest
 
 from image_factory.catalogue import add_version, validate_asset
+from image_factory.targets import load_target
+
+
+def test_catalogues_use_the_selected_target_and_keep_separate_histories() -> None:
+    debian = load_target()
+    ubuntu = debian.model_copy(
+        update={
+            "name": "ubuntu-26.04-arm64",
+            "display_name": "Ubuntu 26.04 ARM64",
+            "ssh_username": "ubuntu",
+        }
+    )
+    catalogue = add_version(None, "v0.2.0", "ab" * 32, ubuntu)
+    assert catalogue["name"] == "cdelgehier/ubuntu-26.04-arm64"
+    assert catalogue["description"] == "Ubuntu 26.04 ARM64 for QEMU and libvirt."
+    assert all(
+        provider["url"].endswith("/v0.2.0/ubuntu-26.04-arm64.box")
+        for provider in catalogue["versions"][0]["providers"]
+    )
+    with pytest.raises(ValueError, match="previous catalogue"):
+        add_version(catalogue, "v0.3.0", "cd" * 32, debian)
 
 
 def test_catalogue_keeps_old_versions_and_both_providers() -> None:

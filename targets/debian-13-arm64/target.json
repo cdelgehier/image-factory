@@ -1,0 +1,9 @@
+{
+  "display_name": "Debian 13 ARM64",
+  "architecture": "arm64",
+  "box_provider": "libvirt",
+  "communicator": "ssh",
+  "ssh_username": "debian",
+  "runtime_suite": "linux",
+  "minimum_tests": 7
+}

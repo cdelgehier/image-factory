@@ -12,7 +12,9 @@ from typing import Any
 import pytest
 import testinfra
 
-ROOT = Path(__file__).resolve().parents[2]
+from image_factory.targets import ROOT, load_target
+
+TARGET = load_target()
 
 
 def free_port(start: int) -> int:
@@ -77,7 +79,7 @@ def machines() -> Iterator[tuple[Path, dict[str, Any]]]:
     (directory / "Vagrantfile").write_text(f'''
 Vagrant.configure("2") do |config|
   config.vm.box = "{box_name}"
-  config.vm.box_architecture = "arm64"
+  config.vm.box_architecture = "{TARGET.architecture}"
   config.vm.box_check_update = false
   config.vm.boot_timeout = 2700
   config.vm.synced_folder ".", "/vagrant", type: "rsync", rsync__exclude: [".vagrant/", "*.log", "*.ssh-config"]
@@ -108,7 +110,7 @@ end
 ''')
     hosts: dict[str, Any] = {}
     try:
-        checksum = (ROOT / "dist/debian-13-arm64.box.sha256").read_text().split()[0]
+        checksum = TARGET.box.with_suffix(".box.sha256").read_text().split()[0]
         vagrant(
             directory,
             "box",
@@ -116,14 +118,14 @@ end
             "--name",
             box_name,
             "--provider",
-            "libvirt",
+            TARGET.box_provider,
             "--architecture",
-            "arm64",
+            TARGET.architecture,
             "--checksum-type",
             "sha256",
             "--checksum",
             checksum,
-            str(ROOT / "dist/debian-13-arm64.box"),
+            str(TARGET.box),
         )
         for name in ("first", "second"):
             vagrant(directory, "up", name, "--provider=qemu", "--no-parallel")
@@ -148,7 +150,7 @@ end
         cleanup_errors = []
         for arguments in (
             ("destroy", "--force"),
-            ("box", "remove", box_name, "--provider", "libvirt", "--all"),
+            ("box", "remove", box_name, "--provider", TARGET.box_provider, "--all"),
         ):
             try:
                 vagrant(directory, *arguments, timeout=600)

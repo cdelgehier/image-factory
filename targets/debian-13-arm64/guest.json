@@ -1,0 +1,6 @@
+{
+  "distribution": "debian",
+  "version": "13",
+  "packages": ["openssh-server", "sudo", "python3", "rsync", "qemu-guest-agent", "cloud-init"],
+  "services": ["ssh", "qemu-guest-agent"]
+}

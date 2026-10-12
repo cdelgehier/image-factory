@@ -1,8 +1,9 @@
 # Image Factory
 
-Debian 13 ARM64 Vagrant boxes, built with Packer and tested on GitHub Actions.
-The source is the official Debian **generic** cloud image. Its dated URL,
-build ID and SHA-512 checksum are stored in `sources/debian.pkrvars.json`.
+ARM64 Vagrant boxes, built with Packer and tested on GitHub Actions.
+Debian 13 is the current target. Its source is the official Debian **generic**
+cloud image. Its dated URL, build ID and SHA-512 checksum are stored in
+`targets/debian-13-arm64/source.pkrvars.json`.
 
 The box uses the **`debian`** account. It includes SSH, passwordless sudo,
 Python 3, rsync, cloud-init and the QEMU guest agent. Vagrant replaces the
@@ -62,12 +63,16 @@ Both entries use the same box file and SHA-256 checksum. To pin a version, set
 | Image tests | Pull request or manual run | Build the final box and test two Vagrant clones |
 | Version | Push to `main` | Run checks and image tests, then use Commitizen to create a tag, changelog and draft |
 | Release | Manual run with a tag | Build and test the exact tag, then publish its draft |
-| Debian source update | Monday at 06:00 UTC or manual run | Open or update a source PR and start its checks |
+| Source updates | Monday at 06:00 UTC or manual run | Open or update a source PR for each enabled target and start its checks |
 
 Image jobs use GitHub-hosted `macos-26` ARM64 runners, UEFI, QEMU TCG and CPU
 model `max`. These runners do not support nested virtualization. The HVF
 settings in the usage example are for physical Apple Silicon machines;
 CI tests TCG operation.
+
+Image tests, source updates and release builds read their job matrices from
+`targets.json`. Each enabled target gets its own build job and diagnostic
+artifact. Publication waits for every target to pass.
 
 Source update runs explicitly dispatch the checks because PRs created with
 `GITHUB_TOKEN` do not trigger normal pull request workflows. Each dispatched
@@ -87,14 +92,19 @@ task test:box
 task release TAG=v0.1.0
 ```
 
+Commands use the default target from `targets.json`. To select another enabled
+target, pass `TARGET=<target-name>` to `box:build`, `test:box` or `sources:update`.
+`task ci` validates every enabled Packer template. Releases include every enabled
+target from the tagged commit.
+
 Python tools use Python 3.14 and the committed `uv.lock`. Packer QEMU and
 Vagrant plugins are pinned to `1.1.7`; `vagrant-qemu` is pinned to `0.6.3`.
 The workflow installs the system tools and records build tool versions in
 the manifest.
 
-Packer creates `dist/disk/debian-13-arm64.qcow2` and
-`dist/debian-13-arm64.box`. The disk has no backing file. The box uses the
-libvirt disk-list format supported by the pinned QEMU provider.
+Packer creates `dist/debian-13-arm64/disk/debian-13-arm64.qcow2` and
+`dist/debian-13-arm64/debian-13-arm64.box`. The disk has no backing file. The box
+uses the libvirt disk-list format supported by the pinned QEMU provider.
 Build keys, cloud-init state, machine identity, SSH host keys, package caches
 and temporary files are removed before packaging.
 
@@ -106,6 +116,56 @@ host keys, and communication through QEMU socket networking. The listener
 starts before the connector. The tests destroy their own machines and remove
 their own box after success or failure. Workflow artifacts keep diagnostic logs.
 
+Metadata tests reject missing or malformed fields, an incorrect provider or
+architecture, extra disks, an incorrect disk path or format, and unexpected
+archive members. The final archive metadata must match the recipe, manifest
+and QCOW2 disk.
+
+## Image recipes
+
+The repository keeps OS details inside each target directory:
+
+```text
+targets.json
+targets/
+  debian-13-arm64/
+    target.json
+    source.pkrvars.json
+    build.pkr.hcl
+    build.sh
+    validate.sh
+    user-data.pkrtpl
+    Vagrantfile
+    provision.sh
+    cleanup.sh
+    update_source.py
+    guest.json
+    tests/unit/test_source.py
+image_factory/              # Target selection, archive checks and publication
+scripts/                    # Build commands
+tests/box/test_archive.py    # Common box and metadata tests
+tests/box/linux/             # Linux guest tests
+```
+
+`target.json` defines the display name, architecture, box provider, communicator,
+account, runtime suite and minimum test count. `guest.json` contains Linux distribution,
+version, package and service expectations. The recipe owns its source updater,
+build and validation commands, template and provisioning files. Shared commands
+have no distribution name.
+
+For Ubuntu 26.04 ARM64, add `targets/ubuntu-26.04-arm64/`, use the `ubuntu`
+SSH account in its configuration and recipe, and select the `linux` runtime
+suite. For Windows 11 ARM64, add `targets/windows-11-arm64/` with its own
+installation template, PowerShell preparation and `windows` runtime suite
+under `tests/box/windows/`. Set `communicator` to `winrm` and define
+`winrm_username` when the recipe uses WinRM. Windows tests must cover its
+communicator, machine identity, file transfer and restart. Linux cloud-init and cleanup scripts stay
+in Linux recipes.
+
+Enable a recipe in `targets.json` when its build and tests are ready. The job
+matrices then include it without a workflow change. Outputs stay in
+`dist/<target>/`, with one stable Vagrant catalogue per target.
+
 ## Releases
 
 Use Conventional Commits. Commitizen owns SemVer tags and the changelog.
@@ -114,12 +174,15 @@ The Release workflow accepts a stable tag such as `v0.1.0` and publishes only
 after all box tests pass. `task release TAG=v0.1.0` dispatches this workflow
 through an authenticated GitHub CLI.
 
+The task runs the workflow stored in the requested tag. In the Actions UI,
+select that tag as the workflow ref and enter the same tag as the input.
+
 Each published release contains:
 
 - `debian-13-arm64.box`
 - `debian-13-arm64.box.sha256`
-- `build-manifest.json`
-- `test-report.xml`
+- `debian-13-arm64-build-manifest.json`
+- `debian-13-arm64-test-report.xml`
 - `debian-13-arm64.json`, the cumulative Vagrant catalogue
 
 Files must be smaller than 2 GiB. Publication rejects an existing published

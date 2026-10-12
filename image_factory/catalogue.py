@@ -4,9 +4,9 @@ import copy
 import re
 from typing import Any
 
+from image_factory.targets import Target, load_target
+
 REPOSITORY = "cdelgehier/image-factory"
-BOX_NAME = "cdelgehier/debian-13-arm64"
-BOX_FILE = "debian-13-arm64.box"
 TAG_PATTERN = r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
 
 
@@ -17,9 +17,14 @@ def validate_asset(size: int) -> None:
 
 
 def add_version(
-    previous: dict[str, Any] | None, tag: str, checksum: str
+    previous: dict[str, Any] | None,
+    tag: str,
+    checksum: str,
+    target: Target | None = None,
 ) -> dict[str, Any]:
     """Add an immutable version without changing earlier entries."""
+    target = target or load_target()
+    box_name = f"{REPOSITORY.split('/')[0]}/{target.name}"
     if not re.fullmatch(TAG_PATTERN, tag) or not re.fullmatch(
         r"[0-9a-f]{64}", checksum
     ):
@@ -28,12 +33,12 @@ def add_version(
         copy.deepcopy(previous)
         if previous is not None
         else {
-            "name": BOX_NAME,
-            "description": "Debian 13 ARM64 for QEMU and libvirt.",
+            "name": box_name,
+            "description": f"{target.display_name} for QEMU and libvirt.",
             "versions": [],
         }
     )
-    if catalogue.get("name") != BOX_NAME or not isinstance(
+    if catalogue.get("name") != box_name or not isinstance(
         catalogue.get("versions"), list
     ):
         raise ValueError("Invalid previous catalogue")
@@ -49,12 +54,12 @@ def add_version(
         if not old_providers or not isinstance(old_providers[0], dict):
             raise ValueError("Invalid previous provider metadata")
         if old_providers != make_providers(
-            "v" + entry["version"], old_providers[0].get("checksum", "")
+            "v" + entry["version"], old_providers[0].get("checksum", ""), target
         ):
             raise ValueError("Invalid previous provider metadata")
         if entry["version"] == tag[1:]:
             raise ValueError("The published version already exists")
-    providers = make_providers(tag, checksum)
+    providers = make_providers(tag, checksum, target)
     versions.append({"version": tag[1:], "providers": providers})
     versions.sort(key=version_key, reverse=True)
     return catalogue
@@ -65,16 +70,16 @@ def version_key(entry: dict[str, Any]) -> tuple[int, ...]:
     return tuple(int(part) for part in entry["version"].split("."))
 
 
-def make_providers(tag: str, checksum: str) -> list[dict[str, Any]]:
+def make_providers(tag: str, checksum: str, target: Target) -> list[dict[str, Any]]:
     """Use the same immutable asset for both ARM64 provider entries."""
     if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
         raise ValueError("Invalid provider checksum")
     return [
         {
             "name": name,
-            "architecture": "arm64",
+            "architecture": target.architecture,
             "default_architecture": True,
-            "url": f"https://github.com/{REPOSITORY}/releases/download/{tag}/{BOX_FILE}",
+            "url": f"https://github.com/{REPOSITORY}/releases/download/{tag}/{target.box.name}",
             "checksum_type": "sha256",
             "checksum": checksum,
         }
