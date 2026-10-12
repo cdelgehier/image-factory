@@ -15,10 +15,10 @@ import testinfra
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def free_port() -> int:
+def free_port(start: int) -> int:
     """Find a loopback port for one QEMU network endpoint."""
     for _ in range(100):
-        port = 20000 + secrets.randbelow(20000)
+        port = start + secrets.randbelow(9000)
         with socket.socket() as connection:
             try:
                 connection.bind(("127.0.0.1", port))
@@ -68,7 +68,11 @@ def machines() -> Iterator[tuple[Path, dict[str, Any]]]:
     directory = ROOT / "reports" / f"vagrant-{identifier}"
     directory.mkdir(parents=True)
     box_name = f"image-factory-test-{identifier}"
-    stream_port, first_port, second_port = free_port(), free_port(), free_port()
+    stream_port, first_port, second_port = (
+        free_port(40000),
+        free_port(20000),
+        free_port(30000),
+    )
     (directory / "sync-marker.txt").write_text("image-factory rsync test\n")
     (directory / "Vagrantfile").write_text(f'''
 Vagrant.configure("2") do |config|
@@ -81,6 +85,7 @@ Vagrant.configure("2") do |config|
     ["second", "192.168.105.52", "connect=127.0.0.1:{stream_port}", {second_port}] ].each do |name, ip, socket, ssh_port|
     config.vm.define name do |machine|
       machine.vm.network "private_network", ip: ip
+      machine.vm.usable_port_range = (ssh_port + 1)..(ssh_port + 10)
       machine.vm.provider "qemu" do |qemu|
         qemu.arch = "aarch64"
         qemu.machine = "virt,accel=tcg"

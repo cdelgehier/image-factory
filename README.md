@@ -46,6 +46,9 @@ vagrant halt
 vagrant destroy
 ```
 
+For several machines, set different `qemu.ssh_port` values and give each
+machine a separate `config.vm.usable_port_range` for automatic port correction.
+
 The stable catalogue URL becomes available after the first published release.
 It lists all published versions with `arm64` entries for `libvirt` and `qemu`.
 Both entries use the same box file and SHA-256 checksum. To pin a version, set
