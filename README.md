@@ -1,11 +1,15 @@
 # Image Factory
 
 ARM64 Vagrant boxes, built with Packer and tested on GitHub Actions.
-Debian 13 is the current target. Its source is the official Debian **generic**
-cloud image. Its dated URL, build ID and SHA-512 checksum are stored in
-`targets/debian-13-arm64/source.pkrvars.json`.
+Debian 13 and Ubuntu 26.04 LTS use official ARM64 cloud images. Each recipe
+stores its dated URL, build ID and checksum in `source.pkrvars.json`.
 
-The box uses the **`debian`** account. It includes SSH, passwordless sudo,
+| Target | Source | SSH account | Source checksum |
+| --- | --- | --- | --- |
+| `debian-13-arm64` (default) | Debian 13 generic | `debian` | SHA-512 |
+| `ubuntu-26.04-arm64` | Ubuntu Server 26.04 LTS (Resolute Raccoon) | `ubuntu` | SHA-256 |
+
+Both boxes include SSH, passwordless sudo,
 Python 3, rsync, cloud-init and the QEMU guest agent. Vagrant replaces the
 standard public key when it starts a new machine.
 
@@ -38,6 +42,10 @@ Vagrant.configure("2") do |config|
   end
 end
 ```
+
+For Ubuntu, set `config.vm.box` to `cdelgehier/ubuntu-26.04-arm64`, use
+`ubuntu-26.04-arm64.json` in the catalogue URL and set `config.ssh.username`
+to `ubuntu`. The other settings stay the same.
 
 ```sh
 vagrant up --provider=qemu
@@ -89,6 +97,8 @@ task ci
 task sources:update
 task box:build
 task test:box
+task box:build TARGET=ubuntu-26.04-arm64
+task test:box TARGET=ubuntu-26.04-arm64
 task release TAG=v0.1.0
 ```
 
@@ -102,8 +112,8 @@ Vagrant plugins are pinned to `1.1.7`; `vagrant-qemu` is pinned to `0.6.3`.
 The workflow installs the system tools and records build tool versions in
 the manifest.
 
-Packer creates `dist/debian-13-arm64/disk/debian-13-arm64.qcow2` and
-`dist/debian-13-arm64/debian-13-arm64.box`. The disk has no backing file. The box
+Packer creates `dist/<target>/disk/<target>.qcow2` and
+`dist/<target>/<target>.box`. The disk has no backing file. The box
 uses the libvirt disk-list format supported by the pinned QEMU provider.
 Build keys, cloud-init state, machine identity, SSH host keys, package caches
 and temporary files are removed before packaging.
@@ -145,6 +155,7 @@ targets/
     update_source.py
     guest.json
     tests/unit/test_source.py
+  ubuntu-26.04-arm64/        # Same recipe files, with Ubuntu source tests
 image_factory/              # Target selection, archive checks and publication
 scripts/                    # Build commands and shared zero-fill helper
 tests/box/test_archive.py    # Common box and metadata tests
@@ -157,9 +168,12 @@ version, package and service expectations. The recipe owns its source updater,
 build and validation commands, template and provisioning files. Shared commands
 have no distribution name.
 
-For Ubuntu 26.04 ARM64, add `targets/ubuntu-26.04-arm64/`, use the `ubuntu`
-SSH account in its configuration and recipe, and select the `linux` runtime
-suite. For Windows 11 ARM64, add `targets/windows-11-arm64/` with its own
+Debian and Ubuntu use the shared `linux` runtime suite. Ubuntu's source updater
+reads Canonical's released SimpleStreams metadata and checks its SHA-256 digest
+against the dated `SHA256SUMS` file. It rejects daily images, another release or
+architecture, unexpected URLs, invalid checksums and older build IDs.
+
+For Windows 11 ARM64, add `targets/windows-11-arm64/` with its own
 installation template, PowerShell preparation and `windows` runtime suite
 under `tests/box/windows/`. Set `communicator` to `winrm` and define
 `winrm_username` when the recipe uses WinRM. Windows tests must cover its
@@ -181,19 +195,19 @@ through an authenticated GitHub CLI.
 The task runs the workflow stored in the requested tag. In the Actions UI,
 select that tag as the workflow ref and enter the same tag as the input.
 
-Each published release contains:
+Each published release contains these files for every enabled target:
 
-- `debian-13-arm64.box`
-- `debian-13-arm64.box.sha256`
-- `debian-13-arm64-build-manifest.json`
-- `debian-13-arm64-test-report.xml`
-- `debian-13-arm64.json`, the cumulative Vagrant catalogue
+- `<target>.box`
+- `<target>.box.sha256`
+- `<target>-build-manifest.json`
+- `<target>-test-report.xml`
+- `<target>.json`, the cumulative Vagrant catalogue
 
 Files must be smaller than 2 GiB. Publication rejects an existing published
 version and a tag older than the latest release. Failed publication may be
 retried while the release is still a draft. Published assets remain unchanged.
 
-The build starts from a pinned image, then installs packages from Debian
+The build starts from a pinned image, then installs packages from its distribution's
 repositories. Package versions may change between builds; the process does
 not promise identical output bytes.
 
@@ -202,4 +216,4 @@ QEMU provider on macOS. Linux libvirt runtime support needs its own runner
 tests and an ARM64 UEFI setup before it can be claimed as tested.
 
 Other operating systems, AMI builds and Docker images can be added when needed.
-The MIT license covers the repository tools. Debian packages keep their own licenses.
+The MIT license covers the repository tools. Distribution packages keep their own licenses.

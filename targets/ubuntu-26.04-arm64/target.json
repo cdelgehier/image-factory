@@ -1,0 +1,9 @@
+{
+  "display_name": "Ubuntu 26.04 LTS ARM64",
+  "architecture": "arm64",
+  "box_provider": "libvirt",
+  "communicator": "ssh",
+  "ssh_username": "ubuntu",
+  "runtime_suite": "linux",
+  "minimum_tests": 7
+}

@@ -1,0 +1,16 @@
+{
+  "distribution": "ubuntu",
+  "version": "26.04",
+  "packages": [
+    "openssh-server",
+    "sudo",
+    "python3",
+    "rsync",
+    "qemu-guest-agent",
+    "cloud-init"
+  ],
+  "services": [
+    "ssh",
+    "qemu-guest-agent"
+  ]
+}
