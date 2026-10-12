@@ -9,8 +9,39 @@ import tempfile
 from pathlib import Path
 from typing import Self
 
-from image_factory.catalogue import BOX_FILE, validate_asset
-from image_factory.sources import CONFIG, Source
+from pydantic import BaseModel, ConfigDict, Field
+
+from image_factory.catalogue import validate_asset
+from image_factory.sources import Source
+from image_factory.targets import Target, load_target
+
+
+class BoxDisk(BaseModel):
+    """Describe the single packaged QCOW2 disk."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    path: str = Field(pattern=r"^box_0\.img$")
+    format: str = Field(pattern=r"^qcow2$")
+
+
+class BoxMetadata(BaseModel):
+    """Validate the disk-list format produced by Packer."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    provider: str
+    architecture: str
+    disks: list[BoxDisk] = Field(min_length=1, max_length=1)
+
+
+def read_box_metadata(path: Path, target: Target) -> dict:
+    """Check metadata against the selected recipe contract."""
+    metadata = BoxMetadata.model_validate_json(path.read_text())
+    if (
+        metadata.provider != target.box_provider
+        or metadata.architecture != target.architecture
+    ):
+        raise ValueError("Invalid provider or architecture in box metadata")
+    return metadata.model_dump()
 
 
 class PackerTarInfo(tar.TarInfo):
@@ -40,8 +71,9 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def unpack_box(box: Path, destination: Path) -> Path:
+def unpack_box(box: Path, destination: Path, target: Target | None = None) -> Path:
     """Read only the three expected regular files from Packer."""
+    target = target or load_target()
     destination.mkdir(parents=True, exist_ok=True)
     with tar.open(box, tarinfo=PackerTarInfo) as archive:
         members = archive.getmembers()
@@ -56,23 +88,25 @@ def unpack_box(box: Path, destination: Path) -> Path:
             stream = archive.extractfile(member)
             if stream is None:
                 raise ValueError("Missing archive member")
-            with stream, (destination / member.name).open("wb") as target:
-                shutil.copyfileobj(stream, target)
-    metadata = json.loads((destination / "metadata.json").read_text())
-    if (
-        metadata.get("provider") != "libvirt"
-        or metadata.get("architecture") != "arm64"
-        or metadata.get("disks") != [{"path": "box_0.img", "format": "qcow2"}]
-    ):
-        raise ValueError("Invalid provider, architecture or disk metadata")
+            with stream, (destination / member.name).open("wb") as output:
+                shutil.copyfileobj(stream, output)
+    read_box_metadata(destination / "metadata.json", target)
     vagrantfile = (destination / "Vagrantfile").read_text()
+    account_setting = f'config.{target.communicator}.username = "{target.username}"'
+    connection_setting = (
+        "config.ssh.insert_key = true"
+        if target.communicator == "ssh"
+        else 'config.vm.communicator = "winrm"'
+    )
     if (
-        'config.ssh.username = "debian"' not in vagrantfile
-        or "config.ssh.insert_key = true" not in vagrantfile
+        account_setting not in vagrantfile
+        or connection_setting not in vagrantfile
         or "PRIVATE KEY" in vagrantfile
         or "image-factory-build" in vagrantfile
     ):
-        raise ValueError("Invalid SSH configuration in the box")
+        raise ValueError(
+            f"Invalid {target.communicator.upper()} configuration in the box"
+        )
     return destination / "box_0.img"
 
 
@@ -91,30 +125,37 @@ def check_disk(path: Path) -> dict:
 
 def main() -> None:
     """Write a checksum and manifest after validating both outputs."""
-    box = Path("dist") / BOX_FILE
+    target = load_target()
+    box = target.box
     validate_asset(box.stat().st_size)
-    source = Source.model_validate_json(CONFIG.read_text())
-    disk = Path("dist/disk/debian-13-arm64.qcow2")
+    source = Source.model_validate_json(
+        (target.directory / "source.pkrvars.json").read_text()
+    )
+    disk = target.disk
     info = check_disk(disk)
     with tempfile.TemporaryDirectory(prefix="image-factory-archive-") as directory:
-        packaged = unpack_box(box, Path(directory))
+        packaged = unpack_box(box, Path(directory), target)
+        metadata = read_box_metadata(Path(directory) / "metadata.json", target)
         check_disk(packaged)
         if sha256(packaged) != sha256(disk):
             raise ValueError("The box does not contain the final standalone disk")
     checksum = sha256(box)
-    (Path("dist") / f"{BOX_FILE}.sha256").write_text(f"{checksum}  {BOX_FILE}\n")
+    box.with_suffix(".box.sha256").write_text(f"{checksum}  {box.name}\n")
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     )
     manifest = {
         "source": source.model_dump(),
-        "ssh_username": "debian",
-        "architecture": "arm64",
+        "target": target.name,
+        "communicator": target.communicator,
+        f"{target.communicator}_username": target.username,
+        "architecture": target.architecture,
+        "box_metadata": metadata,
         "accelerator": "tcg",
         "cpu": "max",
         "virtual_size": info["virtual-size"],
         "commit": revision.stdout.strip() or "uncommitted",
-        "box": {"filename": BOX_FILE, "sha256": checksum, "bytes": box.stat().st_size},
+        "box": {"filename": box.name, "sha256": checksum, "bytes": box.stat().st_size},
         "disk_sha256": sha256(disk),
         "tools": {
             "packer": subprocess.check_output(
@@ -129,7 +170,7 @@ def main() -> None:
             "vagrant_qemu": "0.6.3",
         },
     }
-    Path("dist/build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    target.manifest.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 if __name__ == "__main__":

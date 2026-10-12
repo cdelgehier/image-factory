@@ -1,0 +1,4 @@
+{
+  "default": "debian-13-arm64",
+  "enabled": ["debian-13-arm64"]
+}

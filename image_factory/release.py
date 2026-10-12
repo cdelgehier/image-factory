@@ -10,15 +10,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from image_factory.artifacts import sha256
+from image_factory.artifacts import BoxMetadata, read_box_metadata, sha256, unpack_box
 from image_factory.catalogue import (
-    BOX_FILE,
     REPOSITORY,
     TAG_PATTERN,
     add_version,
     validate_asset,
     version_key,
 )
+from image_factory.targets import Target, enabled_targets
 
 
 def gh(*arguments: str) -> str:
@@ -26,10 +26,13 @@ def gh(*arguments: str) -> str:
     return subprocess.check_output(["gh", *arguments], text=True)
 
 
-def require_test_report(path: Path) -> None:
+def require_test_report(path: Path, minimum_tests: int = 7) -> None:
     """Reject empty reports, failed tests and skipped tests."""
     suites = list(ET.parse(path).getroot().iter("testsuite"))
-    if not suites or sum(int(suite.get("tests", "0")) for suite in suites) < 6:
+    if (
+        not suites
+        or sum(int(suite.get("tests", "0")) for suite in suites) < minimum_tests
+    ):
         raise ValueError("The report must include all box tests")
     if any(
         int(suite.get(field, "0"))
@@ -81,7 +84,7 @@ def release_version_key(release: dict[str, Any]) -> tuple[int, ...]:
     return version_key({"version": release["tag_name"][1:]})
 
 
-def previous_catalogue(tag: str) -> dict[str, Any] | None:
+def previous_catalogue(tag: str, target: Target) -> dict[str, Any] | None:
     """Read the latest catalogue and prevent older releases becoming latest."""
     pages = json.loads(
         gh("api", f"repos/{REPOSITORY}/releases", "--paginate", "--slurp")
@@ -99,6 +102,8 @@ def previous_catalogue(tag: str) -> dict[str, Any] | None:
     latest = max(published, key=release_version_key)
     if version_key({"version": tag[1:]}) <= release_version_key(latest):
         raise ValueError("Publish a version newer than the latest release")
+    if target.catalogue_file not in {asset["name"] for asset in latest["assets"]}:
+        return None
     with tempfile.TemporaryDirectory(prefix="image-factory-catalogue-") as directory:
         gh(
             "release",
@@ -107,11 +112,65 @@ def previous_catalogue(tag: str) -> dict[str, Any] | None:
             "--repo",
             REPOSITORY,
             "--pattern",
-            "debian-13-arm64.json",
+            target.catalogue_file,
             "--dir",
             directory,
         )
-        return json.loads((Path(directory) / "debian-13-arm64.json").read_text())
+        return json.loads((Path(directory) / target.catalogue_file).read_text())
+
+
+def validate_manifest(manifest: dict[str, Any], target: Target) -> None:
+    """Reject a manifest whose box contract differs from the recipe."""
+    metadata = BoxMetadata.model_validate(manifest.get("box_metadata"))
+    box = manifest.get("box")
+    if not isinstance(box, dict):
+        raise ValueError("Invalid box record in the build manifest")
+    if (
+        manifest.get("target") != target.name
+        or manifest.get("architecture") != target.architecture
+        or manifest.get("communicator", "ssh") != target.communicator
+        or manifest.get(f"{target.communicator}_username") != target.username
+        or metadata.architecture != target.architecture
+        or metadata.provider != target.box_provider
+        or box.get("filename") != target.box.name
+    ):
+        raise ValueError("The build manifest does not match the target")
+
+
+def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
+    """Validate one tested box and create its cumulative catalogue."""
+    manifest = json.loads(target.manifest.read_text())
+    validate_manifest(manifest, target)
+    if manifest["commit"] != head:
+        raise ValueError("The manifest must match the release commit")
+    require_test_report(target.report, target.minimum_tests)
+    checksum = sha256(target.box)
+    if (
+        checksum != manifest["box"]["sha256"]
+        or target.box.stat().st_size != manifest["box"]["bytes"]
+        or target.box.with_suffix(".box.sha256").read_text()
+        != f"{checksum}  {target.box.name}\n"
+    ):
+        raise ValueError("The release checksum does not match the tested box")
+    with tempfile.TemporaryDirectory(prefix="image-factory-release-") as directory:
+        disk = unpack_box(target.box, Path(directory), target)
+        if sha256(disk) != manifest["disk_sha256"]:
+            raise ValueError("The manifest checksum does not match the packaged disk")
+        if (
+            read_box_metadata(Path(directory) / "metadata.json", target)
+            != manifest["box_metadata"]
+        ):
+            raise ValueError("The manifest metadata does not match the box")
+    catalogue = add_version(previous_catalogue(tag, target), tag, checksum, target)
+    catalogue_path = target.dist / target.catalogue_file
+    catalogue_path.write_text(json.dumps(catalogue, indent=2) + "\n")
+    return [
+        target.box,
+        target.box.with_suffix(".box.sha256"),
+        target.manifest,
+        target.report,
+        catalogue_path,
+    ]
 
 
 def publish(tag: str) -> None:
@@ -121,33 +180,16 @@ def publish(tag: str) -> None:
         ["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True
     ).strip()
     version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
-    manifest = json.loads(Path("dist/build-manifest.json").read_text())
-    if head != tagged or manifest["commit"] != head or version != tag[1:]:
+    if head != tagged or version != tag[1:]:
         raise ValueError(
             "The version, manifest and checkout must match the release tag"
         )
     record = release_record(tag)
     if record is None or not record["draft"]:
         raise ValueError("Publication requires an existing draft release")
-    require_test_report(Path("dist/test-report.xml"))
-    checksum = sha256(Path("dist") / BOX_FILE)
-    if (
-        checksum != manifest["box"]["sha256"]
-        or Path(f"dist/{BOX_FILE}.sha256").read_text() != f"{checksum}  {BOX_FILE}\n"
-    ):
-        raise ValueError("The release checksum does not match the tested box")
-    catalogue = add_version(previous_catalogue(tag), tag, checksum)
-    Path("dist/debian-13-arm64.json").write_text(json.dumps(catalogue, indent=2) + "\n")
-    assets = [
-        Path("dist") / name
-        for name in (
-            BOX_FILE,
-            f"{BOX_FILE}.sha256",
-            "build-manifest.json",
-            "test-report.xml",
-            "debian-13-arm64.json",
-        )
-    ]
+    assets = []
+    for target in enabled_targets():
+        assets.extend(checked_assets(tag, head, target))
     for asset in assets:
         validate_asset(asset.stat().st_size)
     gh("release", "upload", tag, *map(str, assets), "--repo", REPOSITORY, "--clobber")
@@ -172,7 +214,7 @@ def main() -> None:
                 "--repo",
                 REPOSITORY,
                 "--ref",
-                "main",
+                arguments.tag,
                 "-f",
                 f"tag={arguments.tag}",
             )

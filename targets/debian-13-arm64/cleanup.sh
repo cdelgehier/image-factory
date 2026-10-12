@@ -9,6 +9,7 @@ rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 cloud-init clean --logs --machine-id --seed
 rm -f /etc/ssh/ssh_host_* /var/lib/systemd/random-seed
 rm -f /home/debian/.bash_history /root/.bash_history
+python3 /tmp/image-factory-zero-free-space.py
 find /tmp /var/tmp -mindepth 1 -delete
 find /var/log -type f -exec truncate -s 0 {} +
 sync

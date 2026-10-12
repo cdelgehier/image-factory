@@ -17,7 +17,7 @@ variable "source_build" { type = string }
 variable "firmware" { type = string }
 variable "output_path" {
   type    = string
-  default = "dist/disk"
+  default = "dist/debian-13-arm64/disk"
 }
 variable "ssh_key_path" {
   type    = string
@@ -29,7 +29,8 @@ variable "build_key" {
 }
 
 locals {
-  project = abspath("${path.root}/..")
+  project = abspath("${path.root}/../..")
+  recipe  = abspath(path.root)
 }
 
 source "qemu" "debian" {
@@ -62,7 +63,7 @@ source "qemu" "debian" {
   cd_label             = "cidata"
   cd_content = {
     "meta-data" = "instance-id: image-factory-${var.source_build}\nlocal-hostname: debian\n"
-    "user-data" = templatefile("${local.project}/packer/user-data.pkrtpl", { build_key = var.build_key })
+    "user-data" = templatefile("${local.recipe}/user-data.pkrtpl", { build_key = var.build_key })
   }
   qemuargs = [
     ["-serial", "file:reports/build-serial.log"],
@@ -76,7 +77,7 @@ build {
   sources = ["source.qemu.debian"]
 
   provisioner "shell" {
-    script          = "${local.project}/scripts/provision.sh"
+    script          = "${local.recipe}/provision.sh"
     execute_command = "chmod +x {{ .Path }}; sudo env {{ .Vars }} {{ .Path }}"
   }
   provisioner "file" {
@@ -84,14 +85,18 @@ build {
     destination = "/tmp/image-factory-vagrant.pub"
   }
   provisioner "file" {
-    source      = "${local.project}/scripts/cleanup.sh"
+    source      = "${local.recipe}/cleanup.sh"
     destination = "/tmp/image-factory-cleanup.sh"
   }
+  provisioner "file" {
+    source      = "${local.project}/scripts/zero_free_space.py"
+    destination = "/tmp/image-factory-zero-free-space.py"
+  }
   post-processor "vagrant" {
-    output               = "${local.project}/dist/debian-13-arm64.box"
+    output               = "${local.project}/dist/debian-13-arm64/debian-13-arm64.box"
     architecture         = "arm64"
     compression_level    = 6
-    vagrantfile_template = "${local.project}/packer/Vagrantfile"
+    vagrantfile_template = "${local.recipe}/Vagrantfile"
     keep_input_artifact  = true
   }
 }

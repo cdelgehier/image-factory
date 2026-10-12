@@ -1,11 +1,12 @@
 import base64
 import json
+from importlib import import_module
 from pathlib import Path
 
 import pytest
 
-from image_factory import sources
-from image_factory.sources import source_from_metadata
+sources = import_module("targets.debian-13-arm64.update_source")
+source_from_metadata = sources.source_from_metadata
 
 
 @pytest.fixture

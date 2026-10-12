@@ -1,44 +1,24 @@
 import json
-import tempfile
 from pathlib import Path
 from typing import Any, cast
 
 import testinfra
-from conftest import ROOT, vagrant
-
-from image_factory.artifacts import check_disk, sha256, unpack_box
+from conftest import ROOT, TARGET, vagrant
 
 
-def test_final_box_matches_the_manifest_and_disk() -> None:
-    manifest = json.loads((ROOT / "dist/build-manifest.json").read_text())
-    box = ROOT / "dist/debian-13-arm64.box"
-    assert sha256(box) == manifest["box"]["sha256"]
-    assert (
-        ROOT / "dist/debian-13-arm64.box.sha256"
-    ).read_text() == f"{sha256(box)}  {box.name}\n"
-    with tempfile.TemporaryDirectory(prefix="image-factory-box-") as directory:
-        disk = unpack_box(box, Path(directory))
-        assert check_disk(disk)["virtual-size"] == manifest["virtual_size"]
-        assert sha256(disk) == manifest["disk_sha256"]
-
-
-def test_debian_arm64_account_and_required_packages(first_host: Any) -> None:
-    assert first_host.system_info.distribution == "debian"
-    assert first_host.file("/etc/os-release").contains('VERSION_ID="13"')
+def test_guest_account_and_required_packages(first_host: Any) -> None:
+    expected = json.loads((TARGET.directory / "guest.json").read_text())
+    assert first_host.system_info.distribution == expected["distribution"]
+    assert first_host.file("/etc/os-release").contains(
+        f'VERSION_ID="{expected["version"]}"'
+    )
     assert first_host.run("uname -m").stdout.strip() == "aarch64"
-    assert first_host.run("whoami").stdout.strip() == "debian"
+    assert first_host.run("whoami").stdout.strip() == TARGET.ssh_username
     assert first_host.run("sudo -n true").rc == 0
-    for package in (
-        "openssh-server",
-        "sudo",
-        "python3",
-        "rsync",
-        "qemu-guest-agent",
-        "cloud-init",
-    ):
+    for package in expected["packages"]:
         assert first_host.package(package).is_installed
-    assert first_host.service("ssh").is_running
-    assert first_host.service("qemu-guest-agent").is_running
+    for service in expected["services"]:
+        assert first_host.service(service).is_running
     status = first_host.run("sudo cloud-init status --format json")
     assert status.rc == 0
     assert json.loads(status.stdout)["status"] == "done"
@@ -47,13 +27,15 @@ def test_debian_arm64_account_and_required_packages(first_host: Any) -> None:
 def test_removes_build_credentials_and_replaces_the_vagrant_key(
     first_host: Any,
 ) -> None:
-    keys = first_host.file("/home/debian/.ssh/authorized_keys").content_string
+    keys = first_host.file(
+        f"/home/{TARGET.ssh_username}/.ssh/authorized_keys"
+    ).content_string
     assert "image-factory-build" not in keys
     standard_key = (ROOT / "packer/vagrant.pub").read_text().split()[1]
     assert standard_key not in keys
     assert (
         first_host.run(
-            "sudo grep -R -l image-factory-build /var/lib/cloud /etc/cloud /home/debian /root 2>/dev/null"
+            f"sudo grep -R -l image-factory-build /var/lib/cloud /etc/cloud /home/{TARGET.ssh_username} /root 2>/dev/null"
         ).rc
         == 1
     )
@@ -61,6 +43,7 @@ def test_removes_build_credentials_and_replaces_the_vagrant_key(
         first_host.run("sudo find /tmp /var/tmp -name '*image-factory*'").stdout.strip()
         == ""
     )
+    assert not first_host.file("/image-factory-zero").exists
     assert set(
         first_host.run(
             "sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '"

@@ -22,10 +22,25 @@ on:
 permissions:
   contents: read
 jobs:
-  debian:
-    name: Debian box tests
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/targets
+        id: targets
+  box:
+    needs: targets
+    name: Box tests (${{ matrix.target }})
     runs-on: macos-26
     timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -33,23 +48,26 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: task box:build
+      - run: task box:build "TARGET=$TARGET"
         env:
+          TARGET: ${{ matrix.target }}
           PACKER_GITHUB_API_TOKEN: ${{ github.token }}
-      - run: task test:box
+      - run: task test:box "TARGET=$TARGET"
+        env:
+          TARGET: ${{ matrix.target }}
       - name: Save test diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: debian-test-diagnostics
+          name: test-diagnostics-${{ matrix.target }}
           path: |
             reports/**/*.log
-            dist/*.xml
-            dist/*.json
-            dist/*.sha256
+            dist/**/*.xml
+            dist/**/*.json
+            dist/**/*.sha256
           retention-days: 14
   source-status:
-    needs: debian
+    needs: [targets, box]
     if: always() && github.event_name == 'workflow_dispatch' && inputs.report_sha != ''
     runs-on: ubuntu-latest
     permissions:
@@ -59,7 +77,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPORT_SHA: ${{ inputs.report_sha }}
-          RESULT: ${{ needs.debian.result }}
+          RESULT: ${{ needs.box.result }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -67,4 +85,4 @@ jobs:
           state=failure
           if [[ "$RESULT" == success ]]; then state=success; fi
           gh api "repos/$REPOSITORY/statuses/$REPORT_SHA" -f "state=$state" \
-            -f 'context=Debian box tests' -f "target_url=$RUN_URL"
+            -f 'context=Box tests' -f "target_url=$RUN_URL"

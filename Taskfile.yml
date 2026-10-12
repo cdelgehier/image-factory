@@ -1,5 +1,8 @@
 version: "3"
 
+env:
+  IMAGE_FACTORY_TARGET: '{{.TARGET | default ""}}'
+
 tasks:
   install:
     desc: Install the locked Python tools
@@ -16,32 +19,35 @@ tasks:
       - task: packer:validate
       - task: workflows:check
   lint:
-    cmd: uv run --locked ruff check image_factory tests
+    cmd: uv run --locked ruff check image_factory scripts targets tests
   fmt:check:
-    cmd: uv run --locked ruff format --check image_factory tests
+    cmd: uv run --locked ruff format --check image_factory scripts targets tests
   fmt:fix:
-    cmd: uv run --locked ruff format image_factory tests
+    cmd: uv run --locked ruff format image_factory scripts targets tests
   type:check:
-    cmd: uv run --locked ty check image_factory tests
+    cmd: uv run --locked ty check image_factory scripts targets tests
   test:py:
-    cmd: uv run --locked pytest tests/unit --cov=image_factory --cov-report=term-missing --junitxml=reports/unit-tests.xml
+    cmd: uv run --locked pytest tests/unit targets/*/tests/unit --cov=image_factory --cov=scripts --cov=targets --cov-report=term-missing --junitxml=reports/unit-tests.xml
   shell:check:
     cmds:
-      - shellcheck scripts/*.sh
-      - shfmt -d -i 2 scripts/*.sh
+      - shellcheck scripts/*.sh targets/*/*.sh
+      - shfmt -d -i 2 scripts/*.sh targets/*/*.sh
   packer:validate:
     cmd: bash scripts/validate.sh
   workflows:check:
     cmd: actionlint
   sources:update:
-    desc: Pin the latest official Debian 13 ARM64 cloud image
+    desc: Update the official source of the selected target
     cmd: uv run --locked python -m image_factory.sources
   box:build:
-    desc: Build the Debian ARM64 disk and box with TCG
+    desc: Build the selected disk and box with TCG
     cmd: bash scripts/build.sh
   test:box:
     desc: Test the final archive and two Vagrant clones
-    cmd: uv run --locked pytest tests/box -v --junitxml=dist/test-report.xml
+    cmd: uv run --locked python -m image_factory.targets test
+  targets:matrix:
+    desc: List enabled targets for GitHub job matrices
+    cmd: uv run --locked python -m image_factory.targets matrix
   release:
     desc: Dispatch the tested release workflow for a SemVer tag
     requires:
