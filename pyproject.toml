@@ -1,6 +1,6 @@
 [project]
 name = "image-factory"
-version = "0.0.0"
+version = "0.1.0"
 description = "Debian ARM64 Vagrant boxes built and tested on GitHub Actions."
 requires-python = ">=3.14"
 dependencies = ["pydantic>=2.12.0"]
