@@ -56,7 +56,7 @@ Windows license terms in the answer file.
 From the repository directory:
 
 ```sh
-export WINDOWS_ISO="/absolute/path/Windows11_Client_arm64_en-us_26300_9457.iso"
+export WINDOWS_ISO="$HOME/Downloads/Windows11_Client_arm64_en-us_26300_9457.iso"
 task ci
 task box:build TARGET=windows-11-arm64
 task test:box TARGET=windows-11-arm64
