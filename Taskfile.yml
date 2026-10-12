@@ -27,7 +27,7 @@ tasks:
   type:check:
     cmd: uv run --locked ty check image_factory scripts targets tests
   test:py:
-    cmd: uv run --locked pytest tests/unit targets/*/tests/unit --cov=image_factory --cov=targets --cov-report=term-missing --junitxml=reports/unit-tests.xml
+    cmd: uv run --locked pytest tests/unit targets/*/tests/unit --cov=image_factory --cov=scripts --cov=targets --cov-report=term-missing --junitxml=reports/unit-tests.xml
   shell:check:
     cmds:
       - shellcheck scripts/*.sh targets/*/*.sh

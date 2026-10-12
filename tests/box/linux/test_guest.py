@@ -43,6 +43,7 @@ def test_removes_build_credentials_and_replaces_the_vagrant_key(
         first_host.run("sudo find /tmp /var/tmp -name '*image-factory*'").stdout.strip()
         == ""
     )
+    assert not first_host.file("/image-factory-zero").exists
     assert set(
         first_host.run(
             "sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '"

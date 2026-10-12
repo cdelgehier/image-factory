@@ -108,6 +108,10 @@ uses the libvirt disk-list format supported by the pinned QEMU provider.
 Build keys, cloud-init state, machine identity, SSH host keys, package caches
 and temporary files are removed before packaging.
 
+The cleanup writes zeros to free space, flushes the writes and removes the
+temporary zero file before shutdown. Only a full filesystem is an accepted
+write error. Packer then compresses the QCOW2 disk.
+
 The test suite checks the archive, provider metadata, checksums and QCOW2
 integrity. It imports the final box through Vagrant and checks the OS,
 architecture, account, packages, sudo, cloud-init and key replacement.
@@ -142,7 +146,7 @@ targets/
     guest.json
     tests/unit/test_source.py
 image_factory/              # Target selection, archive checks and publication
-scripts/                    # Build commands
+scripts/                    # Build commands and shared zero-fill helper
 tests/box/test_archive.py    # Common box and metadata tests
 tests/box/linux/             # Linux guest tests
 ```

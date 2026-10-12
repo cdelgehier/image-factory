@@ -88,6 +88,10 @@ build {
     source      = "${local.recipe}/cleanup.sh"
     destination = "/tmp/image-factory-cleanup.sh"
   }
+  provisioner "file" {
+    source      = "${local.project}/scripts/zero_free_space.py"
+    destination = "/tmp/image-factory-zero-free-space.py"
+  }
   post-processor "vagrant" {
     output               = "${local.project}/dist/debian-13-arm64/debian-13-arm64.box"
     architecture         = "arm64"
