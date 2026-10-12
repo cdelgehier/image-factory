@@ -1,4 +1,8 @@
-"""Check the final box and record its source, checksum and tools."""
+"""Check build outputs before they can become release assets.
+
+The packaged disk must match the standalone disk and the selected recipe.
+The manifest records this link so publication can check the same files again.
+"""
 
 import hashlib
 import json
@@ -17,7 +21,11 @@ from image_factory.targets import Target, load_target
 
 
 class BoxDisk(BaseModel):
-    """Describe the single packaged QCOW2 disk."""
+    """Describe the only disk accepted in a box archive.
+
+    A fixed filename and format keep the metadata in line with the files
+    that the QEMU provider will import.
+    """
 
     model_config = ConfigDict(extra="forbid", strict=True)
     path: str = Field(pattern=r"^box_0\.img$")
@@ -25,7 +33,11 @@ class BoxDisk(BaseModel):
 
 
 class BoxMetadata(BaseModel):
-    """Validate the disk-list format produced by Packer."""
+    """Validate Packer's libvirt metadata used by the QEMU provider.
+
+    These recipes produce one disk. Extra fields or disks are rejected so a
+    change in the archive format cannot pass without a review.
+    """
 
     model_config = ConfigDict(extra="forbid", strict=True)
     provider: str
@@ -34,7 +46,12 @@ class BoxMetadata(BaseModel):
 
 
 def read_box_metadata(path: Path, target: Target) -> dict:
-    """Check metadata against the selected recipe contract."""
+    """Check that the archive describes the box requested by the recipe.
+
+    Valid JSON alone is not enough: a box for another provider or CPU
+    architecture must not receive this target's manifest or catalogue entry.
+    """
+
     metadata = BoxMetadata.model_validate_json(path.read_text())
     if (
         metadata.provider != target.box_provider
@@ -45,20 +62,27 @@ def read_box_metadata(path: Path, target: Target) -> dict:
 
 
 class PackerTarInfo(tar.TarInfo):
-    """Read GNU access times without treating them as a path prefix."""
+    """Read the GNU tar headers written by Packer's Go archive writer.
+
+    GNU access times use the area where USTAR stores a path prefix. Reading
+    them as a prefix would change the names of otherwise valid box files.
+    """
 
     @classmethod
     def fromtarfile(cls, tarfile: tar.TarFile) -> Self:
-        """Use the name field for the GNU headers written by Go."""
+        """Keep Python's header parsing and correct GNU regular file names."""
+
         archive = tarfile
         offset = archive.fileobj.tell()
         header = archive.fileobj.read(512)
+        # Restore the position so the standard parser still reads the full header.
         archive.fileobj.seek(offset)
         member = super().fromtarfile(archive)
         if header[257:265] == tar.GNU_MAGIC and header[156:157] in (
             tar.REGTYPE,
             tar.AREGTYPE,
         ):
+            # For these GNU files, the name field is enough; timestamps are not paths.
             member.name = (
                 header[:100].split(b"\0", 1)[0].decode(archive.encoding, archive.errors)
             )
@@ -67,17 +91,24 @@ class PackerTarInfo(tar.TarInfo):
 
 def sha256(path: Path) -> str:
     """Hash a file without loading the disk image into memory."""
+
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def unpack_box(box: Path, destination: Path, target: Target | None = None) -> Path:
-    """Read only the three expected regular files from Packer."""
+    """Unpack a box only when its files and connection settings match a recipe.
+
+    The archive is checked before copying any member. Fixed names and regular
+    files reject archive paths and links that could write outside the destination.
+    """
+
     target = target or load_target()
     destination.mkdir(parents=True, exist_ok=True)
     with tar.open(box, tarinfo=PackerTarInfo) as archive:
         members = archive.getmembers()
         expected = {"box_0.img", "metadata.json", "Vagrantfile"}
+        # The count also rejects duplicate names hidden by the set comparison.
         if (
             len(members) != 3
             or {item.name for item in members} != expected
@@ -98,6 +129,7 @@ def unpack_box(box: Path, destination: Path, target: Target | None = None) -> Pa
         if target.communicator == "ssh"
         else 'config.vm.communicator = "winrm"'
     )
+    # Clones need the recipe's account, never the temporary Packer credentials.
     if (
         account_setting not in vagrantfile
         or connection_setting not in vagrantfile
@@ -111,7 +143,12 @@ def unpack_box(box: Path, destination: Path, target: Target | None = None) -> Pa
 
 
 def check_disk(path: Path) -> dict:
-    """Require a healthy, standalone QCOW2 image."""
+    """Require a healthy QCOW2 disk that can be used on its own.
+
+    A backing file could exist on the build runner but be missing for users.
+    The disk must therefore contain all its data before it is packaged.
+    """
+
     info = json.loads(
         subprocess.check_output(
             ["qemu-img", "info", "--output=json", str(path)], text=True
@@ -119,12 +156,18 @@ def check_disk(path: Path) -> dict:
     )
     if info.get("format") != "qcow2" or info.get("backing-filename"):
         raise ValueError("The disk must be a standalone QCOW2 image")
+    # Metadata can look correct while the QCOW2 structures are damaged.
     subprocess.run(["qemu-img", "check", str(path)], check=True)
     return info
 
 
 def main() -> None:
-    """Write a checksum and manifest after validating both outputs."""
+    """Validate the disk and box, then record their source and build details.
+
+    The checksum and manifest are written only after both outputs pass checks.
+    Publication uses these records to detect files changed after the build.
+    """
+
     target = load_target()
     box = target.box
     validate_asset(box.stat().st_size)
@@ -137,6 +180,7 @@ def main() -> None:
         packaged = unpack_box(box, Path(directory), target)
         metadata = read_box_metadata(Path(directory) / "metadata.json", target)
         check_disk(packaged)
+        # A valid archive could still contain an older disk from another build.
         if sha256(packaged) != sha256(disk):
             raise ValueError("The box does not contain the final standalone disk")
     checksum = sha256(box)
@@ -144,6 +188,7 @@ def main() -> None:
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True
     )
+    # Record both hashes: the archive and its disk are checked at different stages.
     manifest = {
         "source": source.model_dump(),
         "target": target.name,

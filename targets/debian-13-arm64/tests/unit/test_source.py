@@ -11,7 +11,12 @@ source_from_metadata = sources.source_from_metadata
 
 @pytest.fixture
 def metadata() -> dict:
-    """Return a small official Debian image record."""
+    """Provide the official metadata shape without a network request.
+
+    The digest is fixed so tests can compare the upload record and checksum
+    list, then change one field to check rejection paths.
+    """
+
     return {
         "items": [
             {

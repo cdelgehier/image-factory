@@ -143,7 +143,12 @@ def test_rejects_malformed_metadata_json(tmp_path: Path) -> None:
 
 
 def write_box(path: Path, members: dict[str, bytes]) -> None:
-    """Create a small archive for format and safety checks."""
+    """Create small real tar archives without downloading a guest disk.
+
+    Archive checks use names, types, metadata and connection settings. The
+    disk bytes are a placeholder; the box test suite checks QEMU integrity.
+    """
+
     with tarfile.open(path, "w:gz") as archive:
         for name, content in members.items():
             member = tarfile.TarInfo(name)
@@ -189,7 +194,9 @@ def test_reads_gnu_headers_with_access_times(tmp_path: Path) -> None:
             member = tarfile.TarInfo(name)
             member.size = len(content)
             header = bytearray(member.tobuf(format=tarfile.GNU_FORMAT))
+            # Reproduce Go's GNU access time in the area used by a USTAR prefix.
             header[345:357] = b"15263171306\0"
+            # Changing header bytes requires a new tar checksum before reading it.
             header[148:156] = b"        "
             header[148:156] = f"{sum(header):06o}\0 ".encode()
             archive.write(header)

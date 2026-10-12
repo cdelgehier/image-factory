@@ -1,4 +1,8 @@
-"""Run the source updater owned by the selected image recipe."""
+"""Run the selected recipe's updater and share the source pin format.
+
+Distributions publish different metadata. Each updater checks its own
+official source before writing a pin that the shared build tools can read.
+"""
 
 import runpy
 
@@ -8,7 +12,11 @@ from image_factory.targets import load_target
 
 
 class Source(BaseModel):
-    """Store a pinned image URL, build identifier and checksum."""
+    """Store the image reference used by Packer and the build manifest.
+
+    This model checks the common file format. The recipe's updater is still
+    responsible for checking the official host, path and build metadata.
+    """
 
     model_config = ConfigDict(extra="forbid")
     source_build: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
@@ -17,8 +25,10 @@ class Source(BaseModel):
 
 
 def main() -> None:
-    """Let each recipe validate its official upstream metadata."""
+    """Update one enabled recipe without assuming a distribution format."""
+
     target = load_target()
+    # Run by path because recipe names can contain dots and are not package names.
     runpy.run_path(str(target.directory / "update_source.py"), run_name="__main__")
 
 

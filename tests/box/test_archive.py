@@ -1,3 +1,9 @@
+"""Compare the release records with the files users will download.
+
+The standalone disk is not the published box. Extracting the archive proves
+that its disk and metadata still match the build manifest.
+"""
+
 import json
 import tempfile
 from pathlib import Path
@@ -33,6 +39,7 @@ def test_box_metadata_matches_the_recipe_manifest_and_disk() -> None:
         assert (
             metadata["architecture"] == target.architecture == manifest["architecture"]
         )
+        # Ask QEMU about the disk instead of trusting the archive's format claim.
         assert metadata["disks"] == [
             {"path": disk.name, "format": check_disk(disk)["format"]}
         ]

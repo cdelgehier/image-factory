@@ -21,7 +21,12 @@ IMAGE_PATH = f"server/releases/resolute/release-20260927/{FILENAME}"
 
 @pytest.fixture
 def metadata() -> dict:
-    """Return one released Ubuntu ARM64 cloud image record."""
+    """Provide one supported release without using the live Ubuntu stream.
+
+    Tests change this record to cover wrong products, build IDs and disk paths
+    while keeping network availability outside the unit suite.
+    """
+
     return {
         "content_id": "com.ubuntu.cloud:released:download",
         "datatype": "image-downloads",
