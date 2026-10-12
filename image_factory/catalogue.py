@@ -45,9 +45,31 @@ def add_version(
             or not isinstance(entry.get("providers"), list)
         ):
             raise ValueError("Invalid previous version")
+        old_providers = entry["providers"]
+        if not old_providers or not isinstance(old_providers[0], dict):
+            raise ValueError("Invalid previous provider metadata")
+        if old_providers != make_providers(
+            "v" + entry["version"], old_providers[0].get("checksum", "")
+        ):
+            raise ValueError("Invalid previous provider metadata")
         if entry["version"] == tag[1:]:
             raise ValueError("The published version already exists")
-    providers = [
+    providers = make_providers(tag, checksum)
+    versions.append({"version": tag[1:], "providers": providers})
+    versions.sort(key=version_key, reverse=True)
+    return catalogue
+
+
+def version_key(entry: dict[str, Any]) -> tuple[int, ...]:
+    """Sort stable versions using their numeric parts."""
+    return tuple(int(part) for part in entry["version"].split("."))
+
+
+def make_providers(tag: str, checksum: str) -> list[dict[str, Any]]:
+    """Use the same immutable asset for both ARM64 provider entries."""
+    if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise ValueError("Invalid provider checksum")
+    return [
         {
             "name": name,
             "architecture": "arm64",
@@ -58,11 +80,3 @@ def add_version(
         }
         for name in ("libvirt", "qemu")
     ]
-    versions.append({"version": tag[1:], "providers": providers})
-    versions.sort(key=version_key, reverse=True)
-    return catalogue
-
-
-def version_key(entry: dict[str, Any]) -> tuple[int, ...]:
-    """Sort stable versions using their numeric parts."""
-    return tuple(int(part) for part in entry["version"].split("."))

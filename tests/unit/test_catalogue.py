@@ -40,6 +40,23 @@ def test_rejects_a_broken_previous_catalogue() -> None:
         add_version({"versions": []}, "v0.1.0", "ab" * 32)
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("checksum", "bad"),
+        ("architecture", "amd64"),
+        ("url", "https://example.com/box"),
+    ],
+)
+def test_rejects_invalid_provider_metadata_in_old_versions(
+    field: str, value: str
+) -> None:
+    old = add_version(None, "v0.1.0", "ab" * 32)
+    old["versions"][0]["providers"][0][field] = value
+    with pytest.raises(ValueError):
+        add_version(old, "v0.2.0", "cd" * 32)
+
+
 @pytest.mark.parametrize("size", [0, 2**31, 2**31 + 1])
 def test_rejects_empty_or_large_assets(size: int) -> None:
     with pytest.raises(ValueError):

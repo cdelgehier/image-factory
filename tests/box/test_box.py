@@ -1,7 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import testinfra
 from conftest import ROOT, vagrant
@@ -117,7 +117,8 @@ def test_shutdown_and_restart_keep_the_machine_identity(
     vagrant(directory, "up", "second", "--provider=qemu", "--no-parallel")
     configuration = directory / "second.ssh-config"
     configuration.write_text(vagrant(directory, "ssh-config", "second"))
-    host = testinfra.get_host("ssh://second", ssh_config=str(configuration))
+    # Testinfra loads its host modules at runtime.
+    host = cast(Any, testinfra.get_host("ssh://second", ssh_config=str(configuration)))
     hosts["second"] = host
     assert host.run("sudo cloud-init status --wait").rc == 0
     assert host.file("/etc/machine-id").content_string == machine_id
