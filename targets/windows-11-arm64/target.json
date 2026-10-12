@@ -1,0 +1,12 @@
+{
+  "display_name": "Windows 11 Pro ARM64",
+  "architecture": "arm64",
+  "box_provider": "libvirt",
+  "communicator": "winrm",
+  "winrm_username": "vagrant",
+  "runtime_suite": "windows",
+  "minimum_tests": 8,
+  "publication": "local",
+  "accelerator": "hvf",
+  "cpu": "host"
+}

@@ -9,6 +9,12 @@ Vagrant catalogue.
 | --- | --- | --- |
 | `debian-13-arm64` (default) | Debian 13 | [Debian README](targets/debian-13-arm64/README.md) |
 | `ubuntu-26.04-arm64` | Ubuntu Server 26.04 LTS | [Ubuntu README](targets/ubuntu-26.04-arm64/README.md) |
+| `windows-11-arm64` (build yourself) | Windows 11 Pro, lean installation | [Windows README](targets/windows-11-arm64/README.md) |
+
+Debian and Ubuntu boxes are published in releases. The Windows recipe requires
+your Microsoft ISO and produces a private box. Its guide explains how to build,
+test and reference the local file in your own Vagrant project. Windows is not
+included in release assets, public catalogues or GitHub image build matrices.
 
 ## Use a box on Apple Silicon
 
@@ -43,8 +49,9 @@ flowchart TD
     source --> prepare --> clean --> disk --> box --> tests --> ready
 ```
 
-Builds and guest tests use QEMU TCG on GitHub-hosted ARM64 runners.
+Published Linux builds and guest tests use QEMU TCG on GitHub-hosted ARM64 runners.
 The target usage guides use HVF for native acceleration on Apple Silicon.
+Windows builds use HVF on the user's Apple Silicon host.
 The box uses the libvirt archive format accepted by `vagrant-qemu`.
 
 ## Add an image
@@ -64,8 +71,9 @@ task test:box
 ```
 
 The tasks use the default target from `targets.json`. Pass `TARGET=<target-name>`
-to select another enabled target.
-`task ci` checks every enabled target. Build outputs are stored in
+to select another registered target.
+`task ci` checks every registered recipe, including Windows configuration.
+Build outputs are stored in
 `dist/<target>/`; diagnostic logs are stored in `reports/`.
 
 The [MIT license](LICENSE) covers the repository tools. Distribution packages

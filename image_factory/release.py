@@ -178,6 +178,8 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
     Checking the files again catches outputs changed since the build step.
     """
 
+    if target.publication == "local":
+        raise ValueError("Cannot publish a local recipe")
     manifest = json.loads(target.manifest.read_text())
     validate_manifest(manifest, target)
     if manifest["commit"] != head:

@@ -16,6 +16,7 @@ tasks:
       - task: type:check
       - task: test:py
       - task: shell:check
+      - task: powershell:check
       - task: packer:validate
       - task: workflows:check
   lint:
@@ -34,13 +35,16 @@ tasks:
       - shfmt -d -i 2 scripts/*.sh targets/*/*.sh
   packer:validate:
     cmd: bash scripts/validate.sh
+  powershell:check:
+    desc: Check guest PowerShell syntax without executing guest changes
+    cmd: pwsh -NoProfile -File scripts/check-powershell.ps1
   workflows:check:
     cmd: actionlint
   sources:update:
     desc: Update the official source of the selected target
     cmd: uv run --locked python -m image_factory.sources
   box:build:
-    desc: Build the selected disk and box with TCG
+    desc: Build the selected disk and box
     cmd: bash scripts/build.sh
   test:box:
     desc: Test the final archive and two Vagrant clones

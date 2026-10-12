@@ -161,6 +161,16 @@ def check_disk(path: Path) -> dict:
     return info
 
 
+def check_box_size(target: Target) -> None:
+    """Keep GitHub's asset limit separate from private Windows builds."""
+
+    size = target.box.stat().st_size
+    if target.publication == "release":
+        validate_asset(size)
+    elif size == 0:
+        raise ValueError("The box must not be empty")
+
+
 def main() -> None:
     """Validate the disk and box, then record their source and build details.
 
@@ -170,7 +180,7 @@ def main() -> None:
 
     target = load_target()
     box = target.box
-    validate_asset(box.stat().st_size)
+    check_box_size(target)
     source = Source.model_validate_json(
         (target.directory / "source.pkrvars.json").read_text()
     )
@@ -196,8 +206,8 @@ def main() -> None:
         f"{target.communicator}_username": target.username,
         "architecture": target.architecture,
         "box_metadata": metadata,
-        "accelerator": "tcg",
-        "cpu": "max",
+        "accelerator": target.accelerator,
+        "cpu": target.cpu,
         "virtual_size": info["virtual-size"],
         "commit": revision.stdout.strip() or "uncommitted",
         "box": {"filename": box.name, "sha256": checksum, "bytes": box.stat().st_size},

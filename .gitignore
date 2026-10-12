@@ -11,6 +11,8 @@ packer_cache/
 .vagrant/
 *.box
 *.qcow2
+*.iso
+*.vhdx
 *.pem
 .env
 .DS_Store
