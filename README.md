@@ -1,17 +1,14 @@
 # Image Factory
 
-ARM64 Vagrant boxes, built with Packer and tested on GitHub Actions.
-Debian 13 and Ubuntu 26.04 LTS use official ARM64 cloud images. Each recipe
-stores its dated URL, build ID and checksum in `source.pkrvars.json`.
+Image Factory builds ARM64 Vagrant boxes with Packer and tests them on
+GitHub Actions. Each target owns its source, preparation scripts and guest
+checks. Releases include the box, checksum, build manifest, test report and
+Vagrant catalogue.
 
-| Target | Source | SSH account | Source checksum |
-| --- | --- | --- | --- |
-| `debian-13-arm64` (default) | Debian 13 generic | `debian` | SHA-512 |
-| `ubuntu-26.04-arm64` | Ubuntu Server 26.04 LTS (Resolute Raccoon) | `ubuntu` | SHA-256 |
-
-Both boxes include SSH, passwordless sudo,
-Python 3, rsync, cloud-init and the QEMU guest agent. Vagrant replaces the
-standard public key when it starts a new machine.
+| Target | Guest | Usage guide |
+| --- | --- | --- |
+| `debian-13-arm64` (default) | Debian 13 | [Debian README](targets/debian-13-arm64/README.md) |
+| `ubuntu-26.04-arm64` | Ubuntu Server 26.04 LTS | [Ubuntu README](targets/ubuntu-26.04-arm64/README.md) |
 
 ## Use a box on Apple Silicon
 
@@ -23,40 +20,9 @@ brew install qemu
 vagrant plugin install vagrant-qemu --plugin-version 0.6.3
 ```
 
-Create a `Vagrantfile`:
-
-```ruby
-Vagrant.configure("2") do |config|
-  config.vm.box = "cdelgehier/debian-13-arm64"
-  config.vm.box_url = "https://github.com/cdelgehier/image-factory/releases/latest/download/debian-13-arm64.json"
-  config.vm.box_architecture = "arm64"
-  config.ssh.username = "debian"
-  config.ssh.insert_key = true
-  config.vm.synced_folder ".", "/vagrant", type: "rsync"
-  config.vm.provider "qemu" do |qemu|
-    qemu.arch = "aarch64"
-    qemu.machine = "virt,accel=hvf"
-    qemu.cpu = "host"
-    qemu.memory = "2G"
-    qemu.ssh_auto_correct = true
-  end
-end
-```
-
-For Ubuntu, set `config.vm.box` to `cdelgehier/ubuntu-26.04-arm64`, use
-`ubuntu-26.04-arm64.json` in the catalogue URL and set `config.ssh.username`
-to `ubuntu`. The other settings stay the same.
-
-```sh
-vagrant up --provider=qemu
-vagrant ssh
-vagrant rsync
-vagrant halt
-vagrant destroy
-```
-
-For several machines, set different `qemu.ssh_port` values and give each
-machine a separate `config.vm.usable_port_range` for automatic port correction.
+Choose a target from the table above. Its README includes complete
+`Vagrantfile` examples for one machine and two connected machines, with the
+correct SSH account, native acceleration, resources and network options.
 
 The stable catalogue URL becomes available after the first published release.
 It lists all published versions with `arm64` entries for `libvirt` and `qemu`.
@@ -75,7 +41,7 @@ Both entries use the same box file and SHA-256 checksum. To pin a version, set
 
 Image jobs use GitHub-hosted `macos-26` ARM64 runners, UEFI, QEMU TCG and CPU
 model `max`. These runners do not support nested virtualization. The HVF
-settings in the usage example are for physical Apple Silicon machines;
+settings in the target guides are for physical Apple Silicon machines;
 CI tests TCG operation.
 
 Image tests, source updates and release builds read their job matrices from
@@ -97,8 +63,6 @@ task ci
 task sources:update
 task box:build
 task test:box
-task box:build TARGET=ubuntu-26.04-arm64
-task test:box TARGET=ubuntu-26.04-arm64
 task release TAG=v0.1.0
 ```
 
@@ -142,7 +106,8 @@ The repository keeps OS details inside each target directory:
 ```text
 targets.json
 targets/
-  debian-13-arm64/
+  <target>/
+    README.md
     target.json
     source.pkrvars.json
     build.pkr.hcl
@@ -155,7 +120,6 @@ targets/
     update_source.py
     guest.json
     tests/unit/test_source.py
-  ubuntu-26.04-arm64/        # Same recipe files, with Ubuntu source tests
 image_factory/              # Target selection, archive checks and publication
 scripts/                    # Build commands and shared zero-fill helper
 tests/box/test_archive.py    # Common box and metadata tests
@@ -163,22 +127,15 @@ tests/box/linux/             # Linux guest tests
 ```
 
 `target.json` defines the display name, architecture, box provider, communicator,
-account, runtime suite and minimum test count. `guest.json` contains Linux distribution,
-version, package and service expectations. The recipe owns its source updater,
+account, runtime suite and minimum test count. `guest.json` contains the guest
+distribution, version, package and service expectations. The recipe owns its source updater,
 build and validation commands, template and provisioning files. Shared commands
 have no distribution name.
 
-Debian and Ubuntu use the shared `linux` runtime suite. Ubuntu's source updater
-reads Canonical's released SimpleStreams metadata and checks its SHA-256 digest
-against the dated `SHA256SUMS` file. It rejects daily images, another release or
-architecture, unexpected URLs, invalid checksums and older build IDs.
-
-For Windows 11 ARM64, add `targets/windows-11-arm64/` with its own
-installation template, PowerShell preparation and `windows` runtime suite
-under `tests/box/windows/`. Set `communicator` to `winrm` and define
-`winrm_username` when the recipe uses WinRM. Windows tests must cover its
-communicator, machine identity, file transfer and restart. Linux cloud-init and cleanup scripts stay
-in Linux recipes.
+Each target README documents its source and consumer settings. Source
+configuration stores the dated URL, build ID and checksum in
+`source.pkrvars.json`. A new target provides its own preparation, cleanup and
+runtime suite when the existing suite does not cover its guest behavior.
 
 Enable a recipe in `targets.json` when its build and tests are ready. The job
 matrices then include it without a workflow change. Outputs stay in
