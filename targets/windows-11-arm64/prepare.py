@@ -34,8 +34,14 @@ class DriverSource(BaseModel):
 def verify_iso(path: Path, checksum: str) -> None:
     """Require the pinned media before Windows Setup can erase a VM disk."""
 
-    if not path.is_file() or checksum != f"sha256:{sha256(path)}":
-        raise ValueError("The ISO checksum does not match the source pin")
+    if not path.is_file():
+        raise FileNotFoundError(f"ISO file not found: {path}")
+    actual = f"sha256:{sha256(path)}"
+    if checksum != actual:
+        raise ValueError(
+            f"The ISO checksum does not match the source pin: {path}\n"
+            f"Expected: {checksum}\nActual: {actual}"
+        )
 
 
 def render_answer(template: Path, password: str) -> str:
@@ -164,4 +170,8 @@ def build() -> None:
 
 
 if __name__ == "__main__":
-    build()
+    try:
+        build()
+    except (FileNotFoundError, ValueError) as error:
+        # Input errors need an actionable message; unexpected errors keep a traceback.
+        raise SystemExit(str(error)) from error
