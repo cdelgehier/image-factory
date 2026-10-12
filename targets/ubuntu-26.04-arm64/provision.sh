@@ -18,6 +18,7 @@ system_info:
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
     shell: /bin/bash
 EOF
+install -d -m 0755 /run/sshd
 sshd -t
 sudo -u ubuntu sudo -n true
 python3 --version
