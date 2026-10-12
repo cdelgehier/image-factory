@@ -34,13 +34,15 @@ locals {
 }
 
 source "qemu" "ubuntu" {
-  iso_url              = var.source_url
-  iso_checksum         = var.source_checksum
-  disk_image           = true
-  use_backing_file     = false
-  format               = "qcow2"
-  disk_size            = "12G"
-  disk_interface       = "virtio"
+  iso_url          = var.source_url
+  iso_checksum     = var.source_checksum
+  disk_image       = true
+  use_backing_file = false
+  format           = "qcow2"
+  disk_size        = "12G"
+  disk_interface   = "virtio"
+  # Present the NoCloud seed as a CD-ROM on Ubuntu.
+  cdrom_interface      = "virtio-scsi"
   disk_compression     = true
   output_directory     = "${local.project}/${var.output_path}"
   vm_name              = "ubuntu-26.04-arm64.qcow2"
@@ -67,6 +69,9 @@ source "qemu" "ubuntu" {
   }
   qemuargs = [
     ["-serial", "file:reports/build-serial.log"],
+    # qemuargs replaces the default device list, including the seed controller.
+    ["-device", "virtio-scsi-pci,id=scsi0"],
+    ["-device", "scsi-cd,bus=scsi0.0,drive=cdrom0"],
     ["-device", "virtio-serial-pci"],
     ["-chardev", "socket,path=.build/guest-agent.sock,server=on,wait=off,id=agent"],
     ["-device", "virtserialport,chardev=agent,name=org.qemu.guest_agent.0"],

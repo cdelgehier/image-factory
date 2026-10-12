@@ -22,6 +22,7 @@ def test_guest_account_and_required_packages(first_host: Any) -> None:
     status = first_host.run("sudo cloud-init status --format json")
     assert status.rc == 0
     assert json.loads(status.stdout)["status"] == "done"
+    assert first_host.run("cloud-id").stdout.strip() == "nocloud"
 
 
 def test_removes_build_credentials_and_replaces_the_vagrant_key(
