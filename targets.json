@@ -3,5 +3,6 @@
   "enabled": [
     "debian-13-arm64",
     "ubuntu-26.04-arm64"
-  ]
+  ],
+  "local": ["windows-11-arm64"]
 }

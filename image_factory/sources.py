@@ -28,6 +28,8 @@ def main() -> None:
     """Update one enabled recipe without assuming a distribution format."""
 
     target = load_target()
+    if target.publication == "local":
+        raise ValueError("Local recipes use manually verified source pins")
     # Run by path because recipe names can contain dots and are not package names.
     runpy.run_path(str(target.directory / "update_source.py"), run_name="__main__")
 

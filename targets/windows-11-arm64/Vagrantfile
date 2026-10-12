@@ -1,0 +1,26 @@
+Vagrant.configure("2") do |config|
+  config.vm.guest = :windows
+  config.vm.communicator = "winrm"
+  config.winrm.username = "vagrant"
+  # The public Vagrant lab password is replaced by users after the first boot.
+  config.winrm.password = ENV.fetch("IMAGE_FACTORY_WINDOWS_PASSWORD", "vagrant")
+  config.winrm.transport = :ssl
+  config.winrm.guest_port = 5986
+  config.winrm.ssl_peer_verification = false
+  config.vm.boot_timeout = 1800
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.network "forwarded_port", guest: 5986, host: 55986,
+    host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: true
+  config.vm.provider "qemu" do |qemu|
+    qemu.arch = "aarch64"
+    qemu.machine = "virt,accel=hvf"
+    qemu.cpu = "host"
+    qemu.smp = "4"
+    qemu.memory = "8G"
+    # Match the inbox NVMe storage used by the installation recipe.
+    qemu.drive_interface = "none"
+    qemu.net_device = "virtio-net-pci"
+    qemu.extra_qemu_args = ["-device", "nvme,drive=disk0,serial=image-factory"]
+    qemu.graceful_timeout = 180
+  end
+end

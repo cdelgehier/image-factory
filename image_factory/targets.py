@@ -10,29 +10,30 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME_PATTERN = r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+TargetName = Annotated[str, Field(pattern=NAME_PATTERN)]
 
 
 class TargetList(BaseModel):
-    """Define enabled recipes and the default used when no target is given."""
+    """Separate published recipes from recipes that users build themselves."""
 
     model_config = ConfigDict(extra="forbid")
     default: str = Field(pattern=NAME_PATTERN)
-    enabled: list[str] = Field(min_length=1)
+    enabled: list[TargetName] = Field(min_length=1)
+    local: list[TargetName] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_default(self) -> Self:
         """Require one active default and unique recipe names."""
 
         # Duplicate names would create repeated matrix jobs and release assets.
-        if self.default not in self.enabled or len(set(self.enabled)) != len(
-            self.enabled
-        ):
+        names = self.enabled + self.local
+        if self.default not in self.enabled or len(set(names)) != len(names):
             raise ValueError("The default must be enabled and targets must be unique")
         return self
 
@@ -57,6 +58,9 @@ class Target(BaseModel):
     )
     runtime_suite: str = Field(pattern=r"^[a-z]+$")
     minimum_tests: int = Field(ge=7)
+    publication: Literal["release", "local"] = "release"
+    accelerator: Literal["tcg", "hvf"] = "tcg"
+    cpu: Literal["max", "host"] = "max"
 
     @model_validator(mode="after")
     def check_account(self) -> Self:
@@ -116,20 +120,25 @@ class Target(BaseModel):
 
 
 def load_target(name: str | None = None, *, root: Path = ROOT) -> Target:
-    """Load an enabled recipe from an argument, the environment or the default.
+    """Load a registered recipe from an argument, environment or default.
 
     A direct argument takes priority over the Taskfile environment. Requiring
-    an enabled name keeps build commands in line with the workflow registry.
+    a registered name prevents arbitrary paths from becoming build recipes.
     """
 
     registry = TargetList.model_validate_json((root / "targets.json").read_text())
     selected = name or os.environ.get("IMAGE_FACTORY_TARGET") or registry.default
-    if selected not in registry.enabled:
+    if selected not in registry.enabled + registry.local:
         raise ValueError(f"Target is not enabled: {selected}")
     # Reject path separators before using a registry value to find recipe files.
     TargetList(default=selected, enabled=[selected])
     values = json.loads((root / "targets" / selected / "target.json").read_text())
-    return Target(name=selected, root=root, **values)
+    target = Target(name=selected, root=root, **values)
+    # A local recipe must not become public through a registry-only edit.
+    publication = "local" if selected in registry.local else "release"
+    if target.publication != publication:
+        raise ValueError("The registry and target publication policy must match")
+    return target
 
 
 def enabled_targets(root: Path = ROOT) -> list[Target]:
@@ -137,6 +146,13 @@ def enabled_targets(root: Path = ROOT) -> list[Target]:
 
     registry = TargetList.model_validate_json((root / "targets.json").read_text())
     return [load_target(name, root=root) for name in registry.enabled]
+
+
+def all_targets(root: Path = ROOT) -> list[Target]:
+    """Include private builds in configuration checks, but not job matrices."""
+
+    registry = TargetList.model_validate_json((root / "targets.json").read_text())
+    return [load_target(name, root=root) for name in registry.enabled + registry.local]
 
 
 def main() -> None:
@@ -155,7 +171,7 @@ def main() -> None:
         print(json.dumps({"target": [target.name for target in enabled_targets()]}))
         return
     if arguments.command == "list":
-        print("\n".join(target.name for target in enabled_targets()))
+        print("\n".join(target.name for target in all_targets()))
         return
     target = load_target(arguments.target)
     if arguments.command == "field":

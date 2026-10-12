@@ -34,6 +34,8 @@ def add_version(
     """
 
     target = target or load_target()
+    if target.publication == "local":
+        raise ValueError("Cannot create a release catalogue for a local recipe")
     box_name = f"{REPOSITORY.split('/')[0]}/{target.name}"
     if not re.fullmatch(TAG_PATTERN, tag) or not re.fullmatch(
         r"[0-9a-f]{64}", checksum

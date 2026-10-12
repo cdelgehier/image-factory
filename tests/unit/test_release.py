@@ -25,6 +25,12 @@ def test_release_dispatch_uses_the_workflow_from_the_requested_tag(
     assert arguments[arguments.index("--ref") + 1] == "v0.1.0"
 
 
+def test_release_rejects_a_local_recipe_before_reading_its_files() -> None:
+    target = load_target().model_copy(update={"publication": "local"})
+    with pytest.raises(ValueError, match="local"):
+        release.checked_assets("v0.2.0", "ab" * 20, target)
+
+
 @pytest.fixture
 def tested_target(tmp_path: Path) -> Target:
     """Create matching release records without building or booting a guest.

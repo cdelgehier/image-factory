@@ -236,3 +236,33 @@ def test_rejects_wrong_box_metadata(
     )
     with pytest.raises(ValueError):
         unpack_box(box, tmp_path / "unpacked")
+
+
+@pytest.mark.parametrize("publication", ["local", "release"])
+def test_private_boxes_can_exceed_the_github_asset_limit(
+    tmp_path: Path, publication: str
+) -> None:
+    from image_factory.artifacts import check_box_size
+
+    target = load_target().model_copy(
+        update={"root": tmp_path, "publication": publication}
+    )
+    target.dist.mkdir(parents=True)
+    # A sparse file exercises the real size boundary without allocating 2 GiB.
+    with target.box.open("wb") as box:
+        box.truncate(2**31)
+    if publication == "local":
+        check_box_size(target)
+    else:
+        with pytest.raises(ValueError, match="2 GiB"):
+            check_box_size(target)
+
+
+def test_private_boxes_must_not_be_empty(tmp_path: Path) -> None:
+    from image_factory.artifacts import check_box_size
+
+    target = load_target().model_copy(update={"root": tmp_path, "publication": "local"})
+    target.dist.mkdir(parents=True)
+    target.box.touch()
+    with pytest.raises(ValueError, match="empty"):
+        check_box_size(target)

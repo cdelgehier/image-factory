@@ -10,6 +10,38 @@ from image_factory import targets
 from image_factory.targets import enabled_targets, load_target
 
 
+def test_local_recipe_is_selectable_but_stays_out_of_workflow_matrices(
+    tmp_path: Path,
+) -> None:
+    write_target(tmp_path, "debian-13-arm64", "debian")
+    write_target(tmp_path, "windows-11-arm64", "vagrant")
+    directory = tmp_path / "targets/windows-11-arm64/target.json"
+    values = json.loads(directory.read_text()) | {"publication": "local"}
+    directory.write_text(json.dumps(values))
+    (tmp_path / "targets.json").write_text(
+        json.dumps(
+            {
+                "default": "debian-13-arm64",
+                "enabled": ["debian-13-arm64"],
+                "local": ["windows-11-arm64"],
+            }
+        )
+    )
+    assert load_target("windows-11-arm64", root=tmp_path).publication == "local"
+    assert [target.name for target in enabled_targets(tmp_path)] == ["debian-13-arm64"]
+
+
+@pytest.mark.parametrize("local", [["debian"], ["windows", "windows"], ["../windows"]])
+def test_local_registry_rejects_duplicate_and_unsafe_names(
+    tmp_path: Path, local: list[str]
+) -> None:
+    (tmp_path / "targets.json").write_text(
+        json.dumps({"default": "debian", "enabled": ["debian"], "local": local})
+    )
+    with pytest.raises(ValueError):
+        enabled_targets(tmp_path)
+
+
 def write_target(root: Path, name: str, username: str) -> None:
     """Create a recipe under the test root without changing the real registry.
 
