@@ -1,0 +1,19 @@
+#cloud-config
+users:
+  - name: debian
+    groups: [adm, sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${build_key}
+ssh_pwauth: false
+disable_root: true
+package_update: true
+packages:
+  - openssh-server
+  - sudo
+  - python3
+  - rsync
+  - qemu-guest-agent
+  - iputils-ping

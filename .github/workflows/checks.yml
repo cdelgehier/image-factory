@@ -1,0 +1,64 @@
+name: Checks
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      report_sha:
+        description: Source pull request commit to report
+        type: string
+        default: ""
+      ref:
+        description: Commit or branch to check
+        type: string
+        default: main
+  workflow_call:
+    inputs:
+      report_sha:
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  checks:
+    name: Code checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: task ci
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+      - name: Check pull request commits
+        if: github.event_name == 'pull_request'
+        run: uv run --locked cz check --rev-range "$BASE..$HEAD"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+  source-status:
+    needs: checks
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.report_sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the source pull request result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_SHA: ${{ inputs.report_sha }}
+          RESULT: ${{ needs.checks.result }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [[ "$REPORT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          state=failure
+          if [[ "$RESULT" == success ]]; then state=success; fi
+          gh api "repos/$REPOSITORY/statuses/$REPORT_SHA" -f "state=$state" \
+            -f 'context=Code checks' -f "target_url=$RUN_URL"

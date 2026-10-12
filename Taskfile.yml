@@ -1,0 +1,63 @@
+version: "3"
+
+tasks:
+  install:
+    desc: Install the locked Python tools
+    cmd: uv sync --locked
+  ci:
+    desc: Run configuration, code and unit checks
+    cmds:
+      - task: install
+      - task: lint
+      - task: fmt:check
+      - task: type:check
+      - task: test:py
+      - task: shell:check
+      - task: packer:validate
+      - task: workflows:check
+  lint:
+    cmd: uv run --locked ruff check image_factory tests
+  fmt:check:
+    cmd: uv run --locked ruff format --check image_factory tests
+  fmt:fix:
+    cmd: uv run --locked ruff format image_factory tests
+  type:check:
+    cmd: uv run --locked ty check image_factory tests
+  test:py:
+    cmd: uv run --locked pytest tests/unit --cov=image_factory --cov-report=term-missing --junitxml=reports/unit-tests.xml
+  shell:check:
+    cmds:
+      - shellcheck scripts/*.sh
+      - shfmt -d -i 2 scripts/*.sh
+  packer:validate:
+    cmd: bash scripts/validate.sh
+  workflows:check:
+    cmd: actionlint
+  sources:update:
+    desc: Pin the latest official Debian 13 ARM64 cloud image
+    cmd: uv run --locked python -m image_factory.sources
+  box:build:
+    desc: Build the Debian ARM64 disk and box with TCG
+    cmd: bash scripts/build.sh
+  test:box:
+    desc: Test the final archive and two Vagrant clones
+    cmd: uv run --locked pytest tests/box -v --junitxml=dist/test-report.xml
+  release:
+    desc: Dispatch the tested release workflow for a SemVer tag
+    requires:
+      vars: [TAG]
+    cmd: uv run --locked python -m image_factory.release dispatch {{shellQuote .TAG}}
+  release:draft:
+    requires:
+      vars: [TAG]
+    cmd: uv run --locked python -m image_factory.release draft {{shellQuote .TAG}}
+  release:publish:
+    requires:
+      vars: [TAG]
+    cmd: uv run --locked python -m image_factory.release publish {{shellQuote .TAG}}
+  version:bump:
+    cmd: bash scripts/version.sh
+  pre-commit:install:
+    cmds:
+      - uv run --locked pre-commit install
+      - uv run --locked pre-commit install --hook-type commit-msg

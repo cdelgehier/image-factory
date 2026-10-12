@@ -1,0 +1,16 @@
+.venv/
+.build/
+dist/
+reports/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+.coverage
+htmlcov/
+packer_cache/
+.vagrant/
+*.box
+*.qcow2
+*.pem
+.env
+.DS_Store

@@ -1,0 +1,45 @@
+name: Debian source update
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  statuses: write
+concurrency:
+  group: debian-source-update
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          version: 3.46.4
+          repo-token: ${{ github.token }}
+      - run: task install
+      - run: task sources:update
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        id: pull-request
+        with:
+          branch: updates/debian-source
+          commit-message: "fix(source): update the Debian 13 ARM64 cloud image"
+          title: "fix(source): update the Debian 13 ARM64 cloud image"
+          body: "Update the pinned official cloud image within Debian 13. The image workflows validate the checksum and test two Vagrant clones."
+          add-paths: sources/debian.pkrvars.json
+          delete-branch: true
+      - name: Start checks for the source pull request
+        if: steps.pull-request.outputs.pull-request-number != ''
+        run: |
+          for context in 'Code checks' 'Debian box tests'; do
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD" -f state=pending -f "context=$context"
+          done
+          gh workflow run checks.yml --ref main -f "ref=$HEAD" -f "report_sha=$HEAD"
+          gh workflow run image-tests.yml --ref main -f "ref=$HEAD" -f "report_sha=$HEAD"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ steps.pull-request.outputs.pull-request-head-sha }}

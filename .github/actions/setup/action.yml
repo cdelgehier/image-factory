@@ -1,0 +1,32 @@
+name: Set up image tools
+description: Install the tools used by the Taskfile
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      with:
+        enable-cache: true
+    - uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+      with:
+        version: 3.46.4
+        repo-token: ${{ github.token }}
+    - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3
+      with:
+        version: 1.16.1
+    - name: Install system tools
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == macOS ]]; then
+          test "$(uname -m)" = arm64
+          brew install qemu shellcheck shfmt actionlint
+          if ! command -v vagrant >/dev/null; then
+            brew install --cask vagrant
+          fi
+          vagrant plugin install vagrant-qemu --plugin-version 0.6.3
+        else
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+        fi
+        task install

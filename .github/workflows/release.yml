@@ -1,0 +1,57 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable SemVer tag to build and publish
+        required: true
+        type: string
+permissions:
+  contents: read
+  statuses: write
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: refs/tags/${{ inputs.tag }}
+  publish:
+    needs: checks
+    runs-on: macos-26
+    timeout-minutes: 150
+    permissions:
+      contents: write
+    steps:
+      - name: Validate the release tag
+        shell: bash
+        run: '[[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]'
+        env:
+          TAG: ${{ inputs.tag }}
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: task box:build
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+      - run: task test:box
+      - name: Publish the tested draft
+        run: task release:publish "TAG=$TAG"
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Save release diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-diagnostics-${{ inputs.tag }}
+          path: |
+            reports/**/*.log
+            dist/*.xml
+            dist/*.json
+            dist/*.sha256
+          retention-days: 14

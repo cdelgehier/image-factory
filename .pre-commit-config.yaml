@@ -1,0 +1,36 @@
+default_language_version:
+  python: python3.14
+repos:
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.19.2
+    hooks:
+      - id: commitizen
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.18
+    hooks:
+      - id: uv-lock
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: ty-check
+        name: Check Python types
+        entry: uv run --locked ty check image_factory tests
+        language: system
+        pass_filenames: false
+        types: [python]

@@ -1,0 +1,14 @@
+Vagrant.configure("2") do |config|
+  config.ssh.username = "debian"
+  config.ssh.insert_key = true
+  config.vm.boot_timeout = 2700
+  config.vm.cloud_init :user_data, content: "#cloud-config\npreserve_hostname: false\n"
+  config.vm.synced_folder ".", "/vagrant", type: "rsync"
+  config.vm.provider "qemu" do |qemu|
+    qemu.arch = "aarch64"
+  end
+  config.vm.provider "libvirt" do |libvirt|
+    libvirt.machine_arch = "aarch64"
+    libvirt.machine_type = "virt"
+  end
+end

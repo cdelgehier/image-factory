@@ -1,0 +1,70 @@
+name: Image tests
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      report_sha:
+        description: Source pull request commit to report
+        type: string
+        default: ""
+      ref:
+        description: Commit or branch to build and test
+        type: string
+        default: main
+  workflow_call:
+    inputs:
+      report_sha:
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  debian:
+    name: Debian box tests
+    runs-on: macos-26
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: task box:build
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+      - run: task test:box
+      - name: Save test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: debian-test-diagnostics
+          path: |
+            reports/**/*.log
+            dist/*.xml
+            dist/*.json
+            dist/*.sha256
+          retention-days: 14
+  source-status:
+    needs: debian
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.report_sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the source pull request result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_SHA: ${{ inputs.report_sha }}
+          RESULT: ${{ needs.debian.result }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [[ "$REPORT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          state=failure
+          if [[ "$RESULT" == success ]]; then state=success; fi
+          gh api "repos/$REPOSITORY/statuses/$REPORT_SHA" -f "state=$state" \
+            -f 'context=Debian box tests' -f "target_url=$RUN_URL"

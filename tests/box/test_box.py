@@ -1,0 +1,125 @@
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import testinfra
+from conftest import ROOT, vagrant
+
+from image_factory.artifacts import check_disk, sha256, unpack_box
+
+
+def test_final_box_matches_the_manifest_and_disk() -> None:
+    manifest = json.loads((ROOT / "dist/build-manifest.json").read_text())
+    box = ROOT / "dist/debian-13-arm64.box"
+    assert sha256(box) == manifest["box"]["sha256"]
+    assert (
+        ROOT / "dist/debian-13-arm64.box.sha256"
+    ).read_text() == f"{sha256(box)}  {box.name}\n"
+    with tempfile.TemporaryDirectory(prefix="image-factory-box-") as directory:
+        disk = unpack_box(box, Path(directory))
+        assert check_disk(disk)["virtual-size"] == manifest["virtual_size"]
+        assert sha256(disk) == manifest["disk_sha256"]
+
+
+def test_debian_arm64_account_and_required_packages(first_host: Any) -> None:
+    assert first_host.system_info.distribution == "debian"
+    assert first_host.file("/etc/os-release").contains('VERSION_ID="13"')
+    assert first_host.run("uname -m").stdout.strip() == "aarch64"
+    assert first_host.run("whoami").stdout.strip() == "debian"
+    assert first_host.run("sudo -n true").rc == 0
+    for package in (
+        "openssh-server",
+        "sudo",
+        "python3",
+        "rsync",
+        "qemu-guest-agent",
+        "cloud-init",
+    ):
+        assert first_host.package(package).is_installed
+    assert first_host.service("ssh").is_running
+    assert first_host.service("qemu-guest-agent").is_running
+    status = first_host.run("sudo cloud-init status --format json")
+    assert status.rc == 0
+    assert json.loads(status.stdout)["status"] == "done"
+
+
+def test_removes_build_credentials_and_replaces_the_vagrant_key(
+    first_host: Any,
+) -> None:
+    keys = first_host.file("/home/debian/.ssh/authorized_keys").content_string
+    assert "image-factory-build" not in keys
+    standard_key = (ROOT / "packer/vagrant.pub").read_text().split()[1]
+    assert standard_key not in keys
+    assert (
+        first_host.run(
+            "sudo grep -R -l image-factory-build /var/lib/cloud /etc/cloud /home/debian /root 2>/dev/null"
+        ).rc
+        == 1
+    )
+    assert (
+        first_host.run("sudo find /tmp /var/tmp -name '*image-factory*'").stdout.strip()
+        == ""
+    )
+    assert set(
+        first_host.run(
+            "sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '"
+        ).stdout.splitlines()
+    ) == {"permitrootlogin no", "passwordauthentication no"}
+
+
+def test_synchronizes_files_with_rsync(machines: tuple[Path, dict[str, Any]]) -> None:
+    directory, hosts = machines
+    assert (
+        hosts["first"].file("/vagrant/sync-marker.txt").content_string
+        == "image-factory rsync test\n"
+    )
+    (directory / "sync-marker.txt").write_text("updated by the rsync test\n")
+    vagrant(directory, "rsync", "first")
+    assert (
+        hosts["first"].file("/vagrant/sync-marker.txt").content_string
+        == "updated by the rsync test\n"
+    )
+
+
+def test_clones_have_separate_identities_and_can_communicate(
+    machines: tuple[Path, dict[str, Any]],
+) -> None:
+    _, hosts = machines
+    first, second = hosts["first"], hosts["second"]
+    identities = [
+        host.file("/etc/machine-id").content_string.strip() for host in (first, second)
+    ]
+    assert all(len(value) == 32 and value != "0" * 32 for value in identities)
+    assert identities[0] != identities[1]
+    assert (
+        first.file("/etc/ssh/ssh_host_ed25519_key.pub").content_string
+        != second.file("/etc/ssh/ssh_host_ed25519_key.pub").content_string
+    )
+    for host, address in ((first, "192.168.105.52"), (second, "192.168.105.51")):
+        ping = host.run(f"ping -c 3 -W 10 {address}")
+        assert ping.rc == 0
+        assert " 0% packet loss" in ping.stdout
+
+
+def test_shutdown_and_restart_keep_the_machine_identity(
+    machines: tuple[Path, dict[str, Any]],
+) -> None:
+    directory, hosts = machines
+    host = hosts["second"]
+    machine_id = host.file("/etc/machine-id").content_string
+    boot_id = host.file("/proc/sys/kernel/random/boot_id").content_string
+    key = host.file("/etc/ssh/ssh_host_ed25519_key.pub").content_string
+    vagrant(directory, "halt", "second")
+    assert ",second,state,stopped" in vagrant(
+        directory, "status", "second", "--machine-readable"
+    )
+    vagrant(directory, "up", "second", "--provider=qemu", "--no-parallel")
+    configuration = directory / "second.ssh-config"
+    configuration.write_text(vagrant(directory, "ssh-config", "second"))
+    host = testinfra.get_host("ssh://second", ssh_config=str(configuration))
+    hosts["second"] = host
+    assert host.run("sudo cloud-init status --wait").rc == 0
+    assert host.file("/etc/machine-id").content_string == machine_id
+    assert host.file("/etc/ssh/ssh_host_ed25519_key.pub").content_string == key
+    assert host.file("/proc/sys/kernel/random/boot_id").content_string != boot_id
