@@ -1,4 +1,8 @@
-"""Run two test-owned Vagrant clones and keep their diagnostic logs."""
+"""Run consumer tests with temporary Vagrant machines and keep failure logs.
+
+Each run owns its box name and machine directory. Cleanup can therefore remove
+test resources without changing existing Vagrant machines or installed boxes.
+"""
 
 import os
 import secrets
@@ -18,7 +22,12 @@ TARGET = load_target()
 
 
 def free_port(start: int) -> int:
-    """Find a loopback port for one QEMU network endpoint."""
+    """Choose an unused loopback port within one test endpoint's range.
+
+    Random choices reduce clashes between test runs sharing a runner. The
+    listener and SSH endpoints use separate ranges to avoid choosing each other.
+    """
+
     for _ in range(100):
         port = start + secrets.randbelow(9000)
         with socket.socket() as connection:
@@ -31,7 +40,12 @@ def free_port(start: int) -> int:
 
 
 def vagrant(directory: Path, *arguments: str, timeout: int = 3600) -> str:
-    """Run Vagrant in the owned directory and append its output."""
+    """Run Vagrant with test-owned state and keep its output before raising.
+
+    Guest boot can fail before an SSH connection exists. CLI logs remain
+    available in that case, and a timeout prevents the fixture from waiting forever.
+    """
+
     environment = os.environ | {
         "VAGRANT_DEFAULT_PROVIDER": "qemu",
         "VAGRANT_DOTFILE_PATH": str(directory / ".vagrant"),
@@ -51,6 +65,7 @@ def vagrant(directory: Path, *arguments: str, timeout: int = 3600) -> str:
         try:
             stdout, _ = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
+            # Drain the stopped CLI so its final output is kept for diagnostics.
             process.kill()
             stdout, _ = process.communicate()
             log.write(stdout)
@@ -65,7 +80,13 @@ def vagrant(directory: Path, *arguments: str, timeout: int = 3600) -> str:
 
 @pytest.fixture(scope="session")
 def machines() -> Iterator[tuple[Path, dict[str, Any]]]:
-    """Import the final box and boot the listener before the connector."""
+    """Import the final box and provide two clones to the shared Linux tests.
+
+    Tests use the packaged box, including its Vagrantfile and SSH account,
+    rather than the standalone build disk. The fixture keeps logs and attempts
+    cleanup even if import, boot or a test assertion fails.
+    """
+
     identifier = uuid.uuid4().hex[:8]
     directory = ROOT / "reports" / f"vagrant-{identifier}"
     directory.mkdir(parents=True)
@@ -76,6 +97,7 @@ def machines() -> Iterator[tuple[Path, dict[str, Any]]]:
         free_port(30000),
     )
     (directory / "sync-marker.txt").write_text("image-factory rsync test\n")
+    # TCG matches GitHub runners; HVF examples are checked on physical Apple Silicon.
     (directory / "Vagrantfile").write_text(f'''
 Vagrant.configure("2") do |config|
   config.vm.box = "{box_name}"
@@ -127,6 +149,7 @@ end
             checksum,
             str(TARGET.box),
         )
+        # The socket listener must be running before the connector can boot.
         for name in ("first", "second"):
             vagrant(directory, "up", name, "--provider=qemu", "--no-parallel")
             configuration = directory / f"{name}.ssh-config"
@@ -134,9 +157,11 @@ end
             hosts[name] = testinfra.get_host(
                 f"ssh://{name}", ssh_config=str(configuration)
             )
+            # SSH can be ready before cloud-init finishes guest setup.
             assert hosts[name].run("sudo cloud-init status --wait").rc == 0
         yield directory, hosts
     finally:
+        # Collect guest evidence before destroy removes access to the machines.
         for name, host in hosts.items():
             try:
                 diagnostic = host.run(
@@ -148,6 +173,7 @@ end
             except Exception as error:
                 (directory / f"{name}-diagnostic.log").write_text(str(error))
         cleanup_errors = []
+        # Attempt box removal even if destroying a machine fails.
         for arguments in (
             ("destroy", "--force"),
             ("box", "remove", box_name, "--provider", TARGET.box_provider, "--all"),
@@ -162,5 +188,6 @@ end
 
 @pytest.fixture
 def first_host(machines: tuple[Path, dict[str, Any]]) -> Any:
-    """Expose the first clone over SSH."""
+    """Reuse the first fixture-owned clone for checks that need only one guest."""
+
     return machines[1]["first"]

@@ -9,30 +9,40 @@ from scripts import zero_free_space
 
 
 class FakeFullDisk(io.BytesIO):
-    """Accept one block, then return a chosen filesystem error."""
+    """Accept one block, then simulate a filesystem write error.
+
+    A bounded in-memory disk lets tests check full-disk handling without
+    filling the runner's filesystem or issuing a real fsync call.
+    """
 
     def __init__(self, error: int) -> None:
+        """Choose the error raised after the first block is accepted."""
+
         super().__init__()
         self.error = error
 
     def write(self, content: Buffer, /) -> int:
         """Stop before the test fills the real filesystem."""
+
         if self.tell():
             raise OSError(self.error, "filesystem error")
         return super().write(content)
 
     def fileno(self) -> int:
-        """Return an identifier for the fsync boundary."""
+        """Return a marker that the fsync spy can record without a real file."""
+
         return 123
 
 
 def write_one_block(stream: io.BufferedIOBase) -> None:
     """Write a bounded block for the file cleanup test."""
+
     stream.write(bytes(1024))
 
 
 def fail_after_one_block(stream: io.BufferedIOBase) -> None:
-    """Simulate a disk error after the temporary file was created."""
+    """Leave a partial zero file so the test can check failure cleanup."""
+
     stream.write(bytes(1024))
     raise OSError(errno.EIO, "I/O error")
 

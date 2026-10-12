@@ -1,4 +1,8 @@
-"""Create the cumulative Vagrant catalogue for published boxes."""
+"""Keep a target's published box versions in one Vagrant catalogue.
+
+Each new release includes the earlier entries, so the stable catalogue URL
+still lets users request an older box version.
+"""
 
 import copy
 import re
@@ -11,7 +15,8 @@ TAG_PATTERN = r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
 
 
 def validate_asset(size: int) -> None:
-    """Require a non-empty asset below the GitHub limit."""
+    """Reject empty files and files at or above the 2 GiB release limit."""
+
     if not 0 < size < 2**31:
         raise ValueError("Release assets must be non-empty and smaller than 2 GiB")
 
@@ -22,13 +27,19 @@ def add_version(
     checksum: str,
     target: Target | None = None,
 ) -> dict[str, Any]:
-    """Add an immutable version without changing earlier entries."""
+    """Add one release while keeping the published version history intact.
+
+    Old entries must still match this target's expected provider URLs and
+    checksums. An existing version cannot be replaced with a new build.
+    """
+
     target = target or load_target()
     box_name = f"{REPOSITORY.split('/')[0]}/{target.name}"
     if not re.fullmatch(TAG_PATTERN, tag) or not re.fullmatch(
         r"[0-9a-f]{64}", checksum
     ):
         raise ValueError("Invalid release tag or SHA-256 checksum")
+    # Do not change the caller's history if validation fails or it reuses the input.
     catalogue = (
         copy.deepcopy(previous)
         if previous is not None
@@ -43,6 +54,7 @@ def add_version(
     ):
         raise ValueError("Invalid previous catalogue")
     versions = catalogue["versions"]
+    # Recheck old entries because the catalogue comes from a published asset.
     for entry in versions:
         if (
             not isinstance(entry, dict)
@@ -66,12 +78,18 @@ def add_version(
 
 
 def version_key(entry: dict[str, Any]) -> tuple[int, ...]:
-    """Sort stable versions using their numeric parts."""
+    """Compare stable versions numerically, so 0.10.0 comes after 0.9.0."""
+
     return tuple(int(part) for part in entry["version"].split("."))
 
 
 def make_providers(tag: str, checksum: str, target: Target) -> list[dict[str, Any]]:
-    """Use the same immutable asset for both ARM64 provider entries."""
+    """Point both providers at the same box in its tagged release.
+
+    The QEMU provider accepts the libvirt archive format. Two catalogue
+    entries let users choose either provider without duplicating the asset.
+    """
+
     if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
         raise ValueError("Invalid provider checksum")
     return [

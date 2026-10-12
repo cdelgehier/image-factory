@@ -1,3 +1,9 @@
+"""Check the packaged guest as a Vagrant user would use it.
+
+Source metadata and archive checks cannot prove that the guest boots, replaces
+its SSH key or keeps separate identities. These checks use two real clones.
+"""
+
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -31,9 +37,11 @@ def test_removes_build_credentials_and_replaces_the_vagrant_key(
     keys = first_host.file(
         f"/home/{TARGET.ssh_username}/.ssh/authorized_keys"
     ).content_string
+    # Vagrant must replace the shared public key with a key for this machine.
     assert "image-factory-build" not in keys
     standard_key = (ROOT / "packer/vagrant.pub").read_text().split()[1]
     assert standard_key not in keys
+    # cloud-init can retain build keys outside the active authorized_keys file.
     assert (
         first_host.run(
             f"sudo grep --devices=skip -R -l image-factory-build /var/lib/cloud /etc/cloud /home/{TARGET.ssh_username} /root 2>/dev/null"
@@ -74,6 +82,7 @@ def test_clones_have_separate_identities_and_can_communicate(
     identities = [
         host.file("/etc/machine-id").content_string.strip() for host in (first, second)
     ]
+    # Each clone starts fresh instead of inheriting the build machine's identity.
     assert all(len(value) == 32 and value != "0" * 32 for value in identities)
     assert identities[0] != identities[1]
     assert (
@@ -101,10 +110,12 @@ def test_shutdown_and_restart_keep_the_machine_identity(
     vagrant(directory, "up", "second", "--provider=qemu", "--no-parallel")
     configuration = directory / "second.ssh-config"
     configuration.write_text(vagrant(directory, "ssh-config", "second"))
-    # Testinfra loads its host modules at runtime.
+    # Restart may change connection details, so discard the old SSH host object.
+    # Testinfra loads its host modules at runtime, hence the explicit Any cast.
     host = cast(Any, testinfra.get_host("ssh://second", ssh_config=str(configuration)))
     hosts["second"] = host
     assert host.run("sudo cloud-init status --wait").rc == 0
+    # Identity changes belong to the first clone boot, not to every later restart.
     assert host.file("/etc/machine-id").content_string == machine_id
     assert host.file("/etc/ssh/ssh_host_ed25519_key.pub").content_string == key
     assert host.file("/proc/sys/kernel/random/boot_id").content_string != boot_id

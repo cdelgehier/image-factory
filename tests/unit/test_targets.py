@@ -11,7 +11,12 @@ from image_factory.targets import enabled_targets, load_target
 
 
 def write_target(root: Path, name: str, username: str) -> None:
-    """Create a small recipe configuration for selection tests."""
+    """Create a recipe under the test root without changing the real registry.
+
+    Selection tests only need recipe settings. Packer files and guest disks
+    stay outside these checks so failures point to target loading behavior.
+    """
+
     directory = root / "targets" / name
     directory.mkdir(parents=True)
     (directory / "target.json").write_text(

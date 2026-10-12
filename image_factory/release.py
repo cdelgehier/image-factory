@@ -1,4 +1,8 @@
-"""Draft and publish releases after the tagged box passes its tests."""
+"""Draft releases and publish only the assets built and tested for their tag.
+
+Publication checks every enabled target before uploading any file. The release
+stays a draft until the upload finishes, so users only see complete releases.
+"""
 
 import argparse
 import json
@@ -22,12 +26,18 @@ from image_factory.targets import Target, enabled_targets
 
 
 def gh(*arguments: str) -> str:
-    """Run GitHub CLI without using a shell."""
+    """Run GitHub CLI with separate arguments and keep API errors visible."""
+
     return subprocess.check_output(["gh", *arguments], text=True)
 
 
 def require_test_report(path: Path, minimum_tests: int = 7) -> None:
-    """Reject empty reports, failed tests and skipped tests."""
+    """Require a complete passing box report before publishing its assets.
+
+    A report with no failures can still be incomplete if tests were skipped
+    or never collected. The recipe sets the minimum expected test count.
+    """
+
     suites = list(ET.parse(path).getroot().iter("testsuite"))
     if (
         not suites
@@ -43,7 +53,13 @@ def require_test_report(path: Path, minimum_tests: int = 7) -> None:
 
 
 def release_record(tag: str) -> dict[str, Any] | None:
-    """Find a release while preserving API errors."""
+    """Find a release by tag without hiding a failed GitHub request.
+
+    A missing release returns None. An API error must stop the caller rather
+    than look like a missing release and trigger another creation attempt.
+    """
+
+    # Older drafts may be on later pages, so the first API page is not enough.
     releases = json.loads(
         gh("api", f"repos/{REPOSITORY}/releases", "--paginate", "--slurp")
     )
@@ -59,7 +75,12 @@ def release_record(tag: str) -> dict[str, Any] | None:
 
 
 def draft(tag: str) -> None:
-    """Create a draft without changing an existing release."""
+    """Create the draft once and allow retries while it stays unpublished.
+
+    A published release is final. Version workflow retries must never turn
+    it back into a draft or replace its assets.
+    """
+
     record = release_record(tag)
     if record is not None:
         if not record["draft"]:
@@ -81,11 +102,17 @@ def draft(tag: str) -> None:
 
 def release_version_key(release: dict[str, Any]) -> tuple[int, ...]:
     """Compare GitHub releases by stable SemVer."""
+
     return version_key({"version": release["tag_name"][1:]})
 
 
 def previous_catalogue(tag: str, target: Target) -> dict[str, Any] | None:
-    """Read the latest catalogue and prevent older releases becoming latest."""
+    """Read this target's history from the highest published stable version.
+
+    The new tag must be newer because publication moves the stable download
+    URL to this release. A newly added target may have no earlier catalogue.
+    """
+
     pages = json.loads(
         gh("api", f"repos/{REPOSITORY}/releases", "--paginate", "--slurp")
     )
@@ -99,6 +126,7 @@ def previous_catalogue(tag: str, target: Target) -> dict[str, Any] | None:
         return None
     if any(not re.fullmatch(TAG_PATTERN, release["tag_name"]) for release in published):
         raise ValueError("Unexpected published release tag")
+    # Release creation dates do not always follow version order.
     latest = max(published, key=release_version_key)
     if version_key({"version": tag[1:]}) <= release_version_key(latest):
         raise ValueError("Publish a version newer than the latest release")
@@ -120,7 +148,12 @@ def previous_catalogue(tag: str, target: Target) -> dict[str, Any] | None:
 
 
 def validate_manifest(manifest: dict[str, Any], target: Target) -> None:
-    """Reject a manifest whose box contract differs from the recipe."""
+    """Require build records to describe the recipe selected for publication.
+
+    Target-specific filenames alone cannot prove that the guest account,
+    provider and architecture belong to the same image.
+    """
+
     metadata = BoxMetadata.model_validate(manifest.get("box_metadata"))
     box = manifest.get("box")
     if not isinstance(box, dict):
@@ -138,13 +171,19 @@ def validate_manifest(manifest: dict[str, Any], target: Target) -> None:
 
 
 def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
-    """Validate one tested box and create its cumulative catalogue."""
+    """Recheck one target's build records and prepare its catalogue asset.
+
+    The manifest, report, archive and disk must agree before any upload.
+    Checking the files again catches outputs changed since the build step.
+    """
+
     manifest = json.loads(target.manifest.read_text())
     validate_manifest(manifest, target)
     if manifest["commit"] != head:
         raise ValueError("The manifest must match the release commit")
     require_test_report(target.report, target.minimum_tests)
     checksum = sha256(target.box)
+    # Check the actual file as well as both records that claim its checksum.
     if (
         checksum != manifest["box"]["sha256"]
         or target.box.stat().st_size != manifest["box"]["bytes"]
@@ -153,6 +192,7 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
     ):
         raise ValueError("The release checksum does not match the tested box")
     with tempfile.TemporaryDirectory(prefix="image-factory-release-") as directory:
+        # Inspect the packaged disk, not just the standalone build output.
         disk = unpack_box(target.box, Path(directory), target)
         if sha256(disk) != manifest["disk_sha256"]:
             raise ValueError("The manifest checksum does not match the packaged disk")
@@ -174,7 +214,12 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
 
 
 def publish(tag: str) -> None:
-    """Upload checked assets to a draft and publish it as the final step."""
+    """Check all targets, upload to the draft, then make the release public.
+
+    The checkout and project version must match the tag requested by the
+    workflow. Published releases are rejected before any asset can change.
+    """
+
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     tagged = subprocess.check_output(
         ["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True
@@ -187,17 +232,21 @@ def publish(tag: str) -> None:
     record = release_record(tag)
     if record is None or not record["draft"]:
         raise ValueError("Publication requires an existing draft release")
+    # Finish checks for every target before uploading a partial set of assets.
     assets = []
     for target in enabled_targets():
         assets.extend(checked_assets(tag, head, target))
     for asset in assets:
         validate_asset(asset.stat().st_size)
+    # Replacing files is allowed only in the draft, so failed uploads can be retried.
     gh("release", "upload", tag, *map(str, assets), "--repo", REPOSITORY, "--clobber")
+    # Keep this last: the stable catalogue URL must point at a complete release.
     gh("release", "edit", tag, "--repo", REPOSITORY, "--draft=false", "--latest")
 
 
 def main() -> None:
-    """Dispatch, draft or publish a stable SemVer tag."""
+    """Dispatch, draft or publish a stable tag through the Taskfile entry point."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("dispatch", "draft", "publish"))
     parser.add_argument("tag")
@@ -205,6 +254,7 @@ def main() -> None:
     if not re.fullmatch(TAG_PATTERN, arguments.tag):
         parser.error("Use a stable tag such as v0.1.0")
     if arguments.command == "dispatch":
+        # Use the workflow stored in the requested tag, not a newer main revision.
         gh("api", f"repos/{REPOSITORY}/git/ref/tags/{arguments.tag}")
         print(
             gh(

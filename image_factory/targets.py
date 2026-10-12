@@ -1,4 +1,8 @@
-"""Select enabled recipes and keep their build outputs separate."""
+"""Select recipes for Taskfile commands, GitHub jobs and release assets.
+
+The same registry drives each stage so an enabled target is built, tested
+and published with its own account, files and runtime suite.
+"""
 
 import argparse
 import json
@@ -15,7 +19,7 @@ NAME_PATTERN = r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
 
 
 class TargetList(BaseModel):
-    """List the recipes built and tested by GitHub workflows."""
+    """Define enabled recipes and the default used when no target is given."""
 
     model_config = ConfigDict(extra="forbid")
     default: str = Field(pattern=NAME_PATTERN)
@@ -24,6 +28,8 @@ class TargetList(BaseModel):
     @model_validator(mode="after")
     def check_default(self) -> Self:
         """Require one active default and unique recipe names."""
+
+        # Duplicate names would create repeated matrix jobs and release assets.
         if self.default not in self.enabled or len(set(self.enabled)) != len(
             self.enabled
         ):
@@ -32,7 +38,11 @@ class TargetList(BaseModel):
 
 
 class Target(BaseModel):
-    """Describe the box contract and the runtime suite of one recipe."""
+    """Describe the settings shared by a recipe's build, tests and release.
+
+    The connection account is explicit because official images do not all
+    use the same user. Output names keep each target's assets separate.
+    """
 
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=NAME_PATTERN)
@@ -50,7 +60,8 @@ class Target(BaseModel):
 
     @model_validator(mode="after")
     def check_account(self) -> Self:
-        """Require the account used by the selected communicator."""
+        """Require an account for the connection method used by this guest."""
+
         if not getattr(self, f"{self.communicator}_username"):
             raise ValueError("The communicator account must be explicit")
         return self
@@ -58,64 +69,83 @@ class Target(BaseModel):
     @property
     def username(self) -> str:
         """Return the validated SSH or WinRM account."""
+
         return getattr(self, f"{self.communicator}_username")
 
     @property
     def directory(self) -> Path:
         """Return the source recipe directory."""
+
         return self.root / "targets" / self.name
 
     @property
     def dist(self) -> Path:
-        """Return the output directory of this target."""
+        """Keep this target's outputs separate from other image builds."""
+
         return self.root / "dist" / self.name
 
     @property
     def box(self) -> Path:
         """Return the release box path."""
+
         return self.dist / f"{self.name}.box"
 
     @property
     def disk(self) -> Path:
-        """Return the standalone Packer disk path."""
+        """Locate the standalone disk checked against the packaged box."""
+
         return self.dist / "disk" / f"{self.name}.qcow2"
 
     @property
     def manifest(self) -> Path:
         """Return a release asset name unique to this target."""
+
         return self.dist / f"{self.name}-build-manifest.json"
 
     @property
     def report(self) -> Path:
         """Return a release test report unique to this target."""
+
         return self.dist / f"{self.name}-test-report.xml"
 
     @property
     def catalogue_file(self) -> str:
-        """Keep the catalogue URL stable for this target."""
+        """Keep the catalogue filename stable across this target's releases."""
+
         return f"{self.name}.json"
 
 
 def load_target(name: str | None = None, *, root: Path = ROOT) -> Target:
-    """Load the selected target or the configured default."""
+    """Load an enabled recipe from an argument, the environment or the default.
+
+    A direct argument takes priority over the Taskfile environment. Requiring
+    an enabled name keeps build commands in line with the workflow registry.
+    """
+
     registry = TargetList.model_validate_json((root / "targets.json").read_text())
     selected = name or os.environ.get("IMAGE_FACTORY_TARGET") or registry.default
     if selected not in registry.enabled:
         raise ValueError(f"Target is not enabled: {selected}")
-    # Validate the name before using it as a path.
+    # Reject path separators before using a registry value to find recipe files.
     TargetList(default=selected, enabled=[selected])
     values = json.loads((root / "targets" / selected / "target.json").read_text())
     return Target(name=selected, root=root, **values)
 
 
 def enabled_targets(root: Path = ROOT) -> list[Target]:
-    """Read every enabled target for build and release jobs."""
+    """Load full recipe settings for each target in the workflow registry."""
+
     registry = TargetList.model_validate_json((root / "targets.json").read_text())
     return [load_target(name, root=root) for name in registry.enabled]
 
 
 def main() -> None:
-    """Print target data or run the selected runtime suite."""
+    """Expose recipe settings and run the selected archive and guest checks.
+
+    Shell tasks and GitHub matrices use this entry point instead of keeping
+    their own target lists. Runtime reports use the selected target's name.
+    """
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("matrix", "list", "field", "test"))
     parser.add_argument("field", nargs="?")
@@ -137,6 +167,7 @@ def main() -> None:
     if not suite.is_dir():
         raise ValueError(f"Missing runtime suite: {target.runtime_suite}")
     target.dist.mkdir(parents=True, exist_ok=True)
+    # Use the same Python environment and target in the pytest subprocess.
     subprocess.run(
         [
             sys.executable,

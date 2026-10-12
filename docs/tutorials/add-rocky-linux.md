@@ -76,7 +76,11 @@ Packer will verify the downloaded disk against this digest.
 Replace `targets/rocky-10.2-arm64/update_source.py` with:
 
 ```python
-"""Pin official Rocky Linux 10.2 ARM64 cloud images."""
+"""Pin official Rocky Linux 10.2 ARM64 images to a dated source.
+
+The directory is used to find a build. The saved URL and checksum refer to
+that exact build so Packer does not follow a moving latest alias.
+"""
 
 import re
 from datetime import datetime
@@ -91,18 +95,25 @@ IMAGE = re.compile(r"^Rocky-10-GenericCloud-Base-(10\.2)-(\d{8}\.\d+)\.aarch64\.
 
 
 def build_key(filename: str) -> tuple[int, int, int]:
-    """Order dated Rocky images by release, date and build number."""
+    """Validate a dated image name and compare its numeric build parts."""
+
     match = IMAGE.fullmatch(filename)
     if match is None:
         raise ValueError("Expected a dated Rocky 10.2 ARM64 GenericCloud image")
     version, build = match.groups()
     date, revision = build.split(".")
     datetime.strptime(date, "%Y%m%d")
+    # Numeric ordering keeps build .10 after .2 on the same date.
     return int(version.split(".")[1]), int(date), int(revision)
 
 
 def latest_image(listing: str) -> str:
-    """Select one dated ARM64 Base image from the official directory."""
+    """Select the newest ARM64 Base image from the pinned Rocky release.
+
+    The filename pattern excludes latest aliases and other image variants.
+    Staying on 10.2 keeps the source in line with the guest version checks.
+    """
+
     filenames = {
         name for name in re.findall(r'href="([^"]+)"', listing) if IMAGE.fullmatch(name)
     }
@@ -112,7 +123,12 @@ def latest_image(listing: str) -> str:
 
 
 def source_from_checksum(filename: str, sums: str) -> Source:
-    """Require one SHA-256 entry for the selected image."""
+    """Require one SHA-256 entry for the exact selected image.
+
+    Missing or duplicate rows cannot provide a clear source pin. Check the
+    filename too, even when this function is called without directory selection.
+    """
+
     build_key(filename)
     checksums = re.findall(
         rf"^SHA256 \({re.escape(filename)}\) = ([0-9a-f]{{64}})$",
@@ -131,8 +147,10 @@ def source_from_checksum(filename: str, sums: str) -> Source:
 
 
 def download_text(url: str) -> str:
-    """Read small official metadata with a bounded timeout."""
+    """Read metadata within a timeout and a fixed memory limit."""
+
     with urlopen(url, timeout=30) as response:
+        # One extra byte detects oversized metadata instead of accepting truncation.
         content = response.read(1024 * 1024 + 1)
     if len(content) > 1024 * 1024:
         raise ValueError("Metadata exceeds the size limit")
@@ -140,7 +158,12 @@ def download_text(url: str) -> str:
 
 
 def main() -> None:
-    """Update the pin after checking the image and checksum."""
+    """Replace the source pin only after its name and checksum pass checks.
+
+    Validation failures or an older upstream build leave the current pin in
+    place. All network reads finish before the replacement file is written.
+    """
+
     filename = latest_image(download_text(BASE_URL))
     source = source_from_checksum(
         filename, download_text(BASE_URL + filename + ".CHECKSUM")
@@ -151,6 +174,7 @@ def main() -> None:
         raise ValueError("Unexpected current source URL")
     if build_key(filename) < build_key(current_filename):
         raise ValueError("Refusing to move to an older Rocky build")
+    # Replace a complete file so readers never see a partly written source pin.
     temporary = CONFIG.with_suffix(".tmp")
     temporary.write_text(source.model_dump_json(indent=2) + "\n")
     temporary.replace(CONFIG)
@@ -281,6 +305,7 @@ from pathlib import Path
 
 import pytest
 
+# The target name contains a dot, so import the updater by file path.
 spec = spec_from_file_location(
     "rocky_source", Path(__file__).resolve().parents[2] / "update_source.py"
 )

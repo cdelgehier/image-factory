@@ -27,7 +27,12 @@ def test_release_dispatch_uses_the_workflow_from_the_requested_tag(
 
 @pytest.fixture
 def tested_target(tmp_path: Path) -> Target:
-    """Create a small box with its matching release records."""
+    """Create matching release records without building or booting a guest.
+
+    The fixture uses a real archive and real hashes so each test can change
+    one record and prove that publication detects the mismatch.
+    """
+
     target = load_target().model_copy(update={"root": tmp_path})
     target.dist.mkdir(parents=True)
     metadata = {
