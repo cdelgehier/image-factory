@@ -66,6 +66,10 @@ task box:build TARGET=windows-11-arm64
 task test:box TARGET=windows-11-arm64
 ```
 
+On Apple Silicon, `task ci` also checks UEFI startup with the real Packer and
+QEMU tools. It uses a small temporary VM and empty media, without installing
+Windows. This check does not replace the complete build and guest tests.
+
 The build uses native HVF acceleration. The guest has no internet access during
 installation, which avoids Store updates changing the image before Sysprep.
 A temporary password is generated for Packer and removed during cleanup.
