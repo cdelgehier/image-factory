@@ -147,6 +147,12 @@ own Vagrant logs and removes its test machines and imported box after success
 or failure. Tests start two 8 GiB guests; 32 GiB of host RAM is recommended for
 the full test run.
 
+Final cleanup runs as a delayed SYSTEM task so Packer can finish its WinRM
+command before the temporary credentials are removed. If shutdown fails,
+inspect `C:\ImageFactory\cleanup.log` in the build guest. It records component
+cleanup, zero fill and any failure before Sysprep. Guest test logs also include
+this file when WinRM is available.
+
 ## What the image contains
 
 The guest is a lean Windows 11 Pro installation. `lean.ps1` removes consumer

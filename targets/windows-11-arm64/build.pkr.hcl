@@ -14,6 +14,10 @@ packer {
 variable "source_url" { type = string }
 variable "source_checksum" { type = string }
 variable "source_build" { type = string }
+variable "output_path" {
+  type    = string
+  default = ""
+}
 variable "iso_path" { type = string }
 variable "seed_iso" { type = string }
 variable "firmware" { type = string }
@@ -36,7 +40,7 @@ source "qemu" "windows" {
   format           = "qcow2"
   disk_size        = "64G"
   disk_compression = true
-  output_directory = "${local.project}/dist/windows-11-arm64/disk"
+  output_directory = var.output_path != "" ? var.output_path : "${local.project}/dist/windows-11-arm64/disk"
   vm_name          = "windows-11-arm64.qcow2"
   qemu_binary      = "qemu-system-aarch64"
   accelerator      = "hvf"
