@@ -34,8 +34,9 @@ Get-ChildItem WSMan:\localhost\Listener | Remove-Item -Recurse -Force
     Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Writing actual zero blocks lets qemu-img reclaim deleted data. Leave 512 MiB
-# free for Sysprep and always remove the fill file, including after an I/O error.
+# QEMU detects these zero writes and reclaims deleted data without allocating
+# the full guest disk on the host. Leave 512 MiB free for Sysprep and always
+# remove the fill file, including after an I/O error.
 $fill = 'C:\image-factory-zero.tmp'
 $stream = [IO.File]::Open($fill, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
 try {

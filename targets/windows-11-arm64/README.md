@@ -15,6 +15,8 @@ an end-to-end Windows build.
 You need macOS on Apple Silicon, at least 16 GiB of host RAM and 100 GiB of free
 disk space. The guest uses four CPUs, 8 GiB of RAM and a 64 GiB virtual disk.
 The QCOW2 file grows with written data; 64 GiB is not its download size.
+QEMU detects zero writes during cleanup and frees those blocks on the host.
+Keep space for the installed disk, its compressed copy, the box and test VMs.
 
 Install [Vagrant](https://developer.hashicorp.com/vagrant/install) and the
 build tools:
