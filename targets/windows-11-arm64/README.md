@@ -72,6 +72,9 @@ Windows. This check does not replace the complete build and guest tests.
 
 The build uses native HVF acceleration. The guest has no internet access during
 installation, which avoids Store updates changing the image before Sysprep.
+A `ramfb` display provides the physical UEFI framebuffer required by Windows
+before a display driver is loaded. Keep it in the consumer configuration,
+including for a headless VM.
 A temporary password is generated for Packer and removed during cleanup.
 Do not enable `PACKER_LOG`: debug logs can expose temporary credentials.
 
@@ -149,7 +152,8 @@ Vagrant.configure("2") do |config|
     qemu.memory = "8G"
     qemu.drive_interface = "none"
     qemu.net_device = "virtio-net-pci"
-    qemu.extra_qemu_args = ["-device", "nvme,drive=disk0,serial=image-factory"]
+    qemu.extra_qemu_args = ["-device", "ramfb",
+      "-device", "nvme,drive=disk0,serial=image-factory"]
   end
 
   config.vm.provision "shell", inline: "Write-Output 'Windows lab is ready'"
@@ -181,3 +185,6 @@ is a useful reference for the installation passes and ARM64 driver paths.
 This recipe uses its own focused answer files and preparation scripts.
 [Tiny11 Builder](https://github.com/ntdevlabs/tiny11builder) shows a broader
 removal approach, with different tradeoffs for standard and Core builds.
+[Microsoft's UEFI requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/uefi-requirements-that-apply-to-all-windows-platforms#protocol-requirements)
+explain why Windows needs a physical framebuffer. The UEFI driver for a plain
+VirtIO GPU supports only `PixelBltOnly`, which Windows does not accept.

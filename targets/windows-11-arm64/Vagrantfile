@@ -20,7 +20,9 @@ Vagrant.configure("2") do |config|
     # Match the inbox NVMe storage used by the installation recipe.
     qemu.drive_interface = "none"
     qemu.net_device = "virtio-net-pci"
-    qemu.extra_qemu_args = ["-device", "nvme,drive=disk0,serial=image-factory"]
+    # Windows boot needs a physical framebuffer even when the VM is headless.
+    qemu.extra_qemu_args = ["-device", "ramfb",
+      "-device", "nvme,drive=disk0,serial=image-factory"]
     qemu.graceful_timeout = 180
   end
 end
