@@ -84,7 +84,7 @@ Vagrant.configure("2") do |config|
   [["first", {first_winrm}, {first_ssh}], ["second", {second_winrm}, {second_ssh}]].each do |name, winrm_port, ssh_port|
     config.vm.define name do |machine|
       machine.vm.network "forwarded_port", guest: 5986, host: winrm_port,
-        host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: true
+        host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: false
       machine.vm.provider "qemu" do |qemu|
         qemu.ssh_port = ssh_port
         qemu.ssh_auto_correct = true

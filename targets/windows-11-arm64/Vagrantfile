@@ -66,14 +66,18 @@ Vagrant.configure("2") do |config|
   config.winrm.ssl_peer_verification = false
   config.vm.boot_timeout = 1800
   config.vm.synced_folder ".", "/vagrant", disabled: true
+  # QEMU does not keep corrected WinRM ports for later Vagrant commands.
+  # Fail on a conflict instead of letting a later command reach another VM.
   config.vm.network "forwarded_port", guest: 5986, host: 55986,
-    host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: true
+    host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: false
   config.vm.provider "qemu" do |qemu|
     qemu.arch = "aarch64"
     qemu.machine = "virt,accel=hvf"
     qemu.cpu = "host"
     qemu.smp = "4"
     qemu.memory = "8G"
+    # QEMU reserves an SSH port even when Windows uses WinRM.
+    qemu.ssh_auto_correct = true
     # Match the inbox NVMe storage used by the installation recipe.
     qemu.drive_interface = "none"
     qemu.net_device = "virtio-net-pci"
