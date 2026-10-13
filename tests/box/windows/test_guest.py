@@ -72,14 +72,16 @@ def test_generalized_clones_have_separate_identities_and_certificates(
 def test_consumer_apps_are_removed_and_windows_can_still_be_serviced(
     machines: Path,
 ) -> None:
-    command = "@{removed=@(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -In @('Clipchamp.Clipchamp','Microsoft.GamingApp','Microsoft.Copilot','MSTeams')).Count; defender=(Get-MpComputerStatus).AntivirusEnabled; store=@(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -EQ Microsoft.WindowsStore).Count; update=(Get-CimInstance Win32_Service -Filter \"Name='wuauserv'\").StartMode; zero=(Test-Path C:/image-factory-zero.tmp); autologon=(Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon').AutoAdminLogon} | ConvertTo-Json -Compress"
+    command = "@{removed=@(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -In @('Clipchamp.Clipchamp','Microsoft.GamingApp','Microsoft.Copilot','MSTeams')).Count; defender=(Get-MpComputerStatus).AntivirusEnabled; store=@(Get-AppxProvisionedPackage -Online | Where-Object DisplayName -EQ Microsoft.WindowsStore).Count; update=(Get-CimInstance Win32_Service -Filter \"Name='wuauserv'\").StartMode; zero=(Test-Path C:/image-factory-zero.tmp); autologon=(Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon').AutoAdminLogon; has_password=($null -ne (Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows NT/CurrentVersion/Winlogon').DefaultPassword)} | ConvertTo-Json -Compress"
     result = powershell(machines, "first", command)
     assert result["removed"] == 0
     assert result["defender"] is True
     assert result["store"] == 1
     assert result["update"] != "Disabled"
     assert result["zero"] is False
-    assert result["autologon"] == "0"
+    # Sysprep can remove the disabled flag; only "1" enables automatic logon.
+    assert result["autologon"] in (None, "0")
+    assert result["has_password"] is False
 
 
 def test_shutdown_and_restart_keep_the_machine_identity(machines: Path) -> None:
@@ -91,3 +93,13 @@ def test_shutdown_and_restart_keep_the_machine_identity(machines: Path) -> None:
     )
     vagrant(machines, "up", "first", "--provider=qemu", "--no-provision")
     assert powershell(machines, "first", command) == before
+    result = powershell(
+        machines,
+        "first",
+        "$boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime; "
+        "@{unclean=@(Get-WinEvent -FilterHashtable @{LogName='System'; Id=41,6008} "
+        "-ErrorAction SilentlyContinue | Where-Object TimeCreated -GE "
+        "$boot.AddSeconds(-5)).Count} | ConvertTo-Json -Compress",
+    )
+    # A stopped QEMU process alone can hide a forced power cut.
+    assert result["unclean"] == 0

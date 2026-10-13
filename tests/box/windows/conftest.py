@@ -130,13 +130,27 @@ end
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 (directory / f"{name}-diagnostic.log").write_text(str(error))
         errors = []
-        for arguments in (
-            ("destroy", "--force"),
-            ("box", "remove", box_name, "--provider", "libvirt", "--all"),
-        ):
+        try:
+            vagrant(directory, "destroy", "--force", "--graceful", timeout=600)
+        except (RuntimeError, subprocess.TimeoutExpired) as error:
+            (directory / "cleanup-diagnostic.log").write_text(str(error))
+            # A failed boot may have no WinRM service; still remove our test VMs.
             try:
-                vagrant(directory, *arguments, timeout=600)
+                vagrant(directory, "destroy", "--force", timeout=600)
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 errors.append(str(error))
+        try:
+            vagrant(
+                directory,
+                "box",
+                "remove",
+                box_name,
+                "--provider",
+                "libvirt",
+                "--all",
+                timeout=600,
+            )
+        except (RuntimeError, subprocess.TimeoutExpired) as error:
+            errors.append(str(error))
         if errors:
             pytest.fail("Test resource cleanup failed: " + "; ".join(errors))

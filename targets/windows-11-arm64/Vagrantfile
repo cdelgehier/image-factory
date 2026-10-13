@@ -51,6 +51,17 @@ Vagrant.configure("2") do |config|
   config.vm.synced_folder ".", "/vagrant", disabled: true
   config.vm.network "forwarded_port", guest: 5986, host: 55986,
     host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: true
+  # QEMU's ACPI power button does not shut down this Windows ARM64 guest.
+  # Give WinRM time to return before Windows closes its services and disk.
+  config.trigger.before :halt, :reload, :destroy do |trigger|
+    trigger.name = "Shut down Windows"
+    trigger.ruby do |environment, machine|
+      next unless machine.state.id == :running
+      next if environment[:force_halt]
+
+      machine.communicate.execute('shutdown.exe /s /t 5 /f /d p:4:1 /c "Vagrant Halt"')
+    end
+  end
   config.vm.provider "qemu" do |qemu|
     qemu.arch = "aarch64"
     qemu.machine = "virt,accel=hvf"
