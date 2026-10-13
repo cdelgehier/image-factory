@@ -1,0 +1,11 @@
+version: "3"
+
+tasks:
+  prepare:
+    desc: Prepare public catalogues from the latest tested release
+    dir: ..
+    cmd: uv run --locked python -m image_factory.catalogue_site prepare
+  verify:
+    desc: Check the public HTTP headers and deployed catalogue contents
+    dir: ..
+    cmd: uv run --locked python -m image_factory.catalogue_site verify

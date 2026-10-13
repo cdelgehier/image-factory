@@ -30,10 +30,12 @@ Choose a target from the table above. Its README includes complete
 `Vagrantfile` examples for one machine and two connected machines, with the
 correct SSH account, native acceleration, resources and network options.
 
-The stable catalogue URL becomes available after the first published release.
-It lists all published versions with `arm64` entries for `libvirt` and `qemu`.
+GitHub Pages serves the stable catalogues; their box files stay in GitHub Releases.
+This follows Vagrant's [custom box repository format](https://developer.hashicorp.com/vagrant/docs/boxes/box_repository).
+Each catalogue lists all published versions with `arm64` entries for `libvirt` and `qemu`.
 Both entries use the same box file and SHA-256 checksum. To pin a version, set
-`config.vm.box_version` to a release version such as `0.1.0`.
+`config.vm.box_version` to a release version such as `0.4.0`.
+Vagrant downloads the catalogue and the selected box during `vagrant up`.
 
 ## From an official image to a tested box
 
@@ -46,7 +48,12 @@ flowchart TD
     box["Vagrant box<br/>Disk, metadata and Vagrantfile"]
     tests["Archive and disk checks<br/>Two Vagrant clone tests"]
     ready["Box, checksum,<br/>manifest and test report"]
+    release["GitHub Releases<br/>Versioned box files"]
+    catalogue["GitHub Pages<br/>Cumulative Vagrant catalogue"]
+    use["vagrant up<br/>Download the selected version"]
     source --> prepare --> clean --> disk --> box --> tests --> ready
+    ready --> release --> catalogue --> use
+    release --> use
 ```
 
 Published Linux builds and guest tests use QEMU TCG on GitHub-hosted ARM64 runners.
