@@ -89,12 +89,9 @@ source "qemu" "windows" {
 
 build {
   sources = ["source.qemu.windows"]
+  # Reuse WinRM setup from bootstrap.ps1; optical media can preserve ReadOnly.
   provisioner "powershell" {
     script = "${local.recipe}/lean.ps1"
-  }
-  provisioner "file" {
-    source      = "${local.recipe}/configure-winrm.ps1"
-    destination = "C:/ImageFactory/configure-winrm.ps1"
   }
   provisioner "file" {
     source      = "${local.recipe}/cleanup.ps1"
