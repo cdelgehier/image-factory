@@ -71,7 +71,8 @@ source "qemu" "windows" {
     ["-netdev", "user,id=user.0,restrict=on,hostfwd=tcp:127.0.0.1:{{ .SSHHostPort }}-:5986"],
     ["-drive", "if=pflash,format=raw,readonly=on,file=${var.firmware}"],
     ["-drive", "if=pflash,format=raw,file={{ .OutputDir }}/efivars.fd"],
-    ["-drive", "if=none,id=disk0,format=qcow2,file={{ .OutputDir }}/{{ .Name }}"],
+    # Keep zero-fill sparse and reclaim erased data before disk compression.
+    ["-drive", "if=none,id=disk0,format=qcow2,file={{ .OutputDir }}/{{ .Name }},discard=unmap,detect-zeroes=unmap"],
     ["-drive", "if=none,id=install,media=cdrom,readonly=on,file=${var.iso_path}"],
     ["-drive", "if=none,id=seed,media=cdrom,readonly=on,file=${var.seed_iso}"],
     ["-device", "nvme,drive=disk0,serial=image-factory"],
