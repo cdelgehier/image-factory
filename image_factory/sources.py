@@ -24,6 +24,14 @@ class Source(BaseModel):
     source_checksum: str = Field(pattern=r"^sha(?:256:[0-9a-f]{64}|512:[0-9a-f]{128})$")
 
 
+class BuildSource(BaseModel):
+    """Record the actual media and whether it matched the reviewed source pin."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source: Source
+    checksum_verified: bool
+
+
 def main() -> None:
     """Update one enabled recipe without assuming a distribution format."""
 

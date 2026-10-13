@@ -16,7 +16,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field
 
 from image_factory.catalogue import validate_asset
-from image_factory.sources import Source
+from image_factory.sources import BuildSource, Source
 from image_factory.targets import Target, load_target
 
 
@@ -171,6 +171,18 @@ def check_box_size(target: Target) -> None:
         raise ValueError("The box must not be empty")
 
 
+def read_build_source(target: Target) -> BuildSource:
+    """Use the actual private ISO without allowing overrides in public releases."""
+
+    record = target.dist / "source.json"
+    if target.publication == "local" and record.exists():
+        return BuildSource.model_validate_json(record.read_text())
+    source = Source.model_validate_json(
+        (target.directory / "source.pkrvars.json").read_text()
+    )
+    return BuildSource(source=source, checksum_verified=True)
+
+
 def main() -> None:
     """Validate the disk and box, then record their source and build details.
 
@@ -181,9 +193,7 @@ def main() -> None:
     target = load_target()
     box = target.box
     check_box_size(target)
-    source = Source.model_validate_json(
-        (target.directory / "source.pkrvars.json").read_text()
-    )
+    source = read_build_source(target)
     disk = target.disk
     info = check_disk(disk)
     with tempfile.TemporaryDirectory(prefix="image-factory-archive-") as directory:
@@ -200,7 +210,8 @@ def main() -> None:
     )
     # Record both hashes: the archive and its disk are checked at different stages.
     manifest = {
-        "source": source.model_dump(),
+        "source": source.source.model_dump(),
+        "source_checksum_verified": source.checksum_verified,
         "target": target.name,
         "communicator": target.communicator,
         f"{target.communicator}_username": target.username,

@@ -376,10 +376,12 @@ class FakeBuildTools:
 
 
 @pytest.mark.parametrize("failure", [None, "extraction", "packer"])
+@pytest.mark.parametrize("skip_checksum", [False, True])
 def test_build_resolves_driver_links_and_removes_private_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure: str | None,
+    skip_checksum: bool,
 ) -> None:
     import shutil
     import subprocess
@@ -392,7 +394,10 @@ def test_build_resolves_driver_links_and_removes_private_files(
     iso = tmp_path / "windows.iso"
     iso.write_bytes(b"Windows installation media")
     source = json.loads((target.directory / "source.pkrvars.json").read_text())
-    source["source_checksum"] = "sha256:" + hashlib.sha256(iso.read_bytes()).hexdigest()
+    actual_checksum = "sha256:" + hashlib.sha256(iso.read_bytes()).hexdigest()
+    source["source_checksum"] = (
+        "sha256:" + "ab" * 32 if skip_checksum else actual_checksum
+    )
     (target.directory / "source.pkrvars.json").write_text(json.dumps(source))
     firmware = tmp_path / "qemu/share/qemu"
     firmware.mkdir(parents=True)
@@ -429,6 +434,7 @@ def test_build_resolves_driver_links_and_removes_private_files(
     monkeypatch.setattr(prepare.subprocess, "run", tools.run)
     monkeypatch.setattr(prepare, "run_packer", tools.packer)
     monkeypatch.setenv("WINDOWS_ISO", str(iso))
+    monkeypatch.setenv("WINDOWS_SKIP_CHECKSUM", "1" if skip_checksum else "0")
     monkeypatch.delenv("PACKER_LOG", raising=False)
     if failure:
         with pytest.raises(subprocess.CalledProcessError):
@@ -449,6 +455,16 @@ def test_build_resolves_driver_links_and_removes_private_files(
         for name, content in driver_files.items()
     }
     assert (tmp_path / "reports/windows-11-arm64-packer.log").is_file()
+    record = target.dist / "source.json"
+    assert json.loads((target.directory / "source.pkrvars.json").read_text()) == source
+    if failure:
+        assert not record.exists()
+    else:
+        assert f"-var=source_checksum={actual_checksum}" in tools.command
+        assert json.loads(record.read_text()) == {
+            "source": source | {"source_checksum": actual_checksum},
+            "checksum_verified": not skip_checksum,
+        }
 
 
 @pytest.mark.parametrize(
