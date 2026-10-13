@@ -166,9 +166,21 @@ def main() -> None:
     parser.add_argument("command", choices=("matrix", "list", "field", "test"))
     parser.add_argument("field", nargs="?")
     parser.add_argument("--target")
+    parser.add_argument(
+        "--base-ref", default=os.environ.get("IMAGE_FACTORY_BASE_REF", "")
+    )
+    parser.add_argument(
+        "--head-ref", default=os.environ.get("IMAGE_FACTORY_HEAD_REF") or "HEAD"
+    )
     arguments = parser.parse_args()
     if arguments.command == "matrix":
-        print(json.dumps({"target": [target.name for target in enabled_targets()]}))
+        selected = enabled_targets()
+        if arguments.base_ref and arguments.base_ref != "0" * 40:
+            from image_factory.image_selection import affected_targets, changed_paths
+
+            paths = changed_paths(arguments.base_ref, arguments.head_ref)
+            selected = affected_targets(paths, all_targets())
+        print(json.dumps({"target": [target.name for target in selected]}))
         return
     if arguments.command == "list":
         print("\n".join(target.name for target in all_targets()))
