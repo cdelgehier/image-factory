@@ -10,7 +10,118 @@ run in CI. A complete Windows installation and the guest tests must pass on
 your build host before you use the image. The recipe has not yet completed
 an end-to-end Windows build.
 
-## Prepare the source
+## Quick start
+
+Run these steps from the repository directory. You need macOS on Apple Silicon,
+build tools, at least 16 GiB of RAM and 100 GiB of free disk space. See
+[Build requirements](#build-requirements) for installation commands.
+
+### 1. Download the official ISO
+
+Open [Microsoft's Windows 11 ARM64 download page](https://www.microsoft.com/en-us/software-download/windows11arm64).
+Choose **English (United States)** and save the ISO in `Downloads`.
+
+### 2. Check the checksum or skip the source pin
+
+Calculate the downloaded file's SHA-256:
+
+```sh
+shasum -a 256 "$HOME/Downloads/Windows11_Client_arm64_en-us_26300_9457.iso"
+```
+
+Compare it with **Verify your download** on Microsoft's page and the value in
+`source.pkrvars.json`. For a newer ISO, follow [Verify or update the ISO pin](#verify-or-update-the-iso-pin).
+The build checks this pin by default.
+
+To skip that comparison for your private build:
+
+```sh
+export WINDOWS_SKIP_CHECKSUM=1
+```
+
+This accepts an ISO that differs from the saved pin. It does not verify the
+file's origin. The build records its actual checksum and marks the source as
+unverified. Driver checksum checks stay active. Run `export WINDOWS_SKIP_CHECKSUM=0`
+to restore the default.
+
+### 3. Set the ISO path
+
+```sh
+export WINDOWS_ISO="$HOME/Downloads/Windows11_Client_arm64_en-us_26300_9457.iso"
+```
+
+Change the filename if you downloaded a newer build.
+
+### 4. Build and test
+
+Run each command only after the previous command succeeds:
+
+```sh
+task ci
+task box:build TARGET=windows-11-arm64
+task test:box TARGET=windows-11-arm64
+```
+
+The result is `dist/windows-11-arm64/windows-11-arm64.box`.
+
+### 5. Use the box in your project
+
+After the build and tests pass, import the box. Run this command from the
+repository directory:
+
+```sh
+vagrant box add \
+  --name image-factory/windows-11-arm64 \
+  --provider libvirt \
+  --architecture arm64 \
+  --checksum-type sha256 \
+  --checksum "$(awk '{print $1}' dist/windows-11-arm64/windows-11-arm64.box.sha256)" \
+  dist/windows-11-arm64/windows-11-arm64.box
+```
+
+Create a `Vagrantfile` in your own project:
+
+```ruby
+Vagrant.configure("2") do |config|
+  config.vm.box = "image-factory/windows-11-arm64"
+  config.vm.box_architecture = "arm64"
+  config.vm.box_check_update = false
+
+  config.vm.provider "qemu" do |qemu|
+    qemu.arch = "aarch64"
+    qemu.machine = "virt,accel=hvf"
+    qemu.cpu = "host"
+    qemu.smp = "4"
+    qemu.memory = "8G"
+    qemu.drive_interface = "none"
+    qemu.net_device = "virtio-net-pci"
+    qemu.extra_qemu_args = ["-device", "ramfb",
+      "-device", "nvme,drive=disk0,serial=image-factory"]
+  end
+
+  config.vm.provision "shell", inline: "Write-Output 'Windows lab is ready'"
+end
+```
+
+```sh
+vagrant up --provider=qemu
+vagrant winrm -c 'Get-ComputerInfo | Select-Object WindowsProductName, OsArchitecture'
+vagrant halt
+```
+
+The bundled configuration sets the Windows guest type, HTTPS WinRM, port
+forwarding and the `vagrant` account. Its initial lab password is `vagrant`.
+Change it after the first boot, then set `IMAGE_FACTORY_WINDOWS_PASSWORD` for
+later Vagrant commands. Changing the environment variable alone does not change
+the guest password. Each fresh clone starts with the initial lab password.
+
+Shared folders are disabled. Use Vagrant's `file` and PowerShell provisioners
+to copy project files into the guest. The guest tests cover file upload, Windows
+and ARM64 identity, administrator access, lean apps, retained servicing,
+separate clone identities and certificates, shutdown and restart. Archive tests
+check the metadata, disk checksum, QCOW2 integrity and lack of a backing file.
+
+## Build requirements
 
 You need macOS on Apple Silicon, at least 16 GiB of host RAM and 100 GiB of free
 disk space. The guest uses four CPUs, 8 GiB of RAM and a 64 GiB virtual disk.
@@ -42,7 +153,7 @@ The setup files and Pro image metadata confirm English (United States), ARM64
 and build `26300.9457`.
 
 Microsoft's download links expire, so the recipe requires a file path instead
-of saving a signed URL. It rejects an ISO whose checksum differs from
+of saving a signed URL. By default, it rejects an ISO whose checksum differs from
 `source.pkrvars.json`.
 
 ### Verify or update the ISO pin
@@ -94,9 +205,12 @@ task test:box TARGET=windows-11-arm64
 Run the guest tests only after a successful build. A newer ISO may also need
 changes to unattended setup; configuration checks alone cannot prove it works.
 
-There is no checksum bypass in this recipe. Both preparation and Packer check
-the source pin, and `none` is rejected. Updating the verified pin lets you use
-new media while keeping the checks active for later builds.
+`WINDOWS_SKIP_CHECKSUM=1` skips comparison with the shared ISO pin for a private
+build. Packer still checks that it uses the exact bytes read during preparation.
+The manifest records the actual SHA-256 and `source_checksum_verified: false`.
+This option does not change `source.pkrvars.json`, the driver pin or public
+release checks. The recorded Windows build number still comes from the source
+file; update it when using newer media.
 
 The build downloads a pinned [UTM driver ISO](https://docs.getutm.app/guest-support/windows/)
 and checks its SHA-256 before extracting the Windows 11 ARM64 network driver.
@@ -110,14 +224,7 @@ Windows license terms in the answer file.
 
 ## Build and test
 
-From the repository directory:
-
-```sh
-export WINDOWS_ISO="$HOME/Downloads/Windows11_Client_arm64_en-us_26300_9457.iso"
-task ci
-task box:build TARGET=windows-11-arm64
-task test:box TARGET=windows-11-arm64
-```
+The [Quick start](#quick-start) shows the commands in order.
 
 On Apple Silicon, `task ci` also checks UEFI startup with the real Packer and
 QEMU tools. It uses a small temporary VM and empty media, without installing
@@ -179,63 +286,6 @@ device encryption. This is a lab VM configuration. UAC, Defender and the Windows
 firewall remain enabled. WinRM uses HTTPS; each clone creates a new self-signed
 certificate. Vagrant accepts this guest certificate and forwards WinRM only
 to the host's loopback address.
-
-## Add the local box to your project
-
-After the build and tests pass, import the box. Run this command from the
-repository directory:
-
-```sh
-vagrant box add \
-  --name image-factory/windows-11-arm64 \
-  --provider libvirt \
-  --architecture arm64 \
-  --checksum-type sha256 \
-  --checksum "$(awk '{print $1}' dist/windows-11-arm64/windows-11-arm64.box.sha256)" \
-  dist/windows-11-arm64/windows-11-arm64.box
-```
-
-Create a `Vagrantfile` in your own project:
-
-```ruby
-Vagrant.configure("2") do |config|
-  config.vm.box = "image-factory/windows-11-arm64"
-  config.vm.box_architecture = "arm64"
-  config.vm.box_check_update = false
-
-  config.vm.provider "qemu" do |qemu|
-    qemu.arch = "aarch64"
-    qemu.machine = "virt,accel=hvf"
-    qemu.cpu = "host"
-    qemu.smp = "4"
-    qemu.memory = "8G"
-    qemu.drive_interface = "none"
-    qemu.net_device = "virtio-net-pci"
-    qemu.extra_qemu_args = ["-device", "ramfb",
-      "-device", "nvme,drive=disk0,serial=image-factory"]
-  end
-
-  config.vm.provision "shell", inline: "Write-Output 'Windows lab is ready'"
-end
-```
-
-```sh
-vagrant up --provider=qemu
-vagrant winrm -c 'Get-ComputerInfo | Select-Object WindowsProductName, OsArchitecture'
-vagrant halt
-```
-
-The bundled configuration sets the Windows guest type, HTTPS WinRM, port
-forwarding and the `vagrant` account. Its initial lab password is `vagrant`.
-Change it after the first boot, then set `IMAGE_FACTORY_WINDOWS_PASSWORD` for
-later Vagrant commands. Changing the environment variable alone does not change
-the guest password. Each fresh clone starts with the initial lab password.
-
-Shared folders are disabled. Use Vagrant's `file` and PowerShell provisioners
-to copy project files into the guest. The guest tests cover file upload, Windows
-and ARM64 identity, administrator access, lean apps, retained servicing,
-separate clone identities and certificates, shutdown and restart. Archive tests
-check the metadata, disk checksum, QCOW2 integrity and lack of a backing file.
 
 ## References
 
