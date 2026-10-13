@@ -22,6 +22,22 @@ if RUBY_PLATFORM.include?("darwin")
   end
 end
 
+# QEMU closes forwarded TLS connections until Windows starts WinRM.
+# Retry this boot-time disconnect within Vagrant's normal boot timeout.
+if defined?(VagrantPlugins::CommunicatorWinRM)
+  module ImageFactoryWinRMBoot
+    def ready?
+      super
+    rescue OpenSSL::SSL::SSLError, VagrantPlugins::CommunicatorWinRM::Errors::SSLError => error
+      raise unless error.message.include?("unexpected eof while reading")
+
+      sleep @machine.config.winrm.retry_delay
+      false
+    end
+  end
+  Vagrant.plugin("2").manager.communicators.get(:winrm).prepend(ImageFactoryWinRMBoot)
+end
+
 Vagrant.configure("2") do |config|
   config.vm.guest = :windows
   config.vm.communicator = "winrm"
