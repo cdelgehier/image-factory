@@ -124,7 +124,7 @@ end
                     "winrm",
                     name,
                     "-c",
-                    "Get-Content C:/Windows/System32/Sysprep/Panther/setuperr.log -ErrorAction SilentlyContinue; Get-Service WinRM; Get-NetAdapter",
+                    "Get-Content C:/ImageFactory/cleanup.log -ErrorAction SilentlyContinue; Get-Content C:/Windows/System32/Sysprep/Panther/setuperr.log -ErrorAction SilentlyContinue; Get-Service WinRM; Get-NetAdapter",
                     timeout=120,
                 )
             except (RuntimeError, subprocess.TimeoutExpired) as error:
