@@ -489,3 +489,12 @@ def test_sysprep_answer_uses_arm64_and_only_public_lab_credentials() -> None:
         item.text for item in answer.findall(".//u:Password/u:Value", namespace)
     ] == ["vagrant"]
     assert answer.find(".//u:AutoLogon", namespace) is None
+
+
+def test_unattended_setup_commands_fit_windows_path_limits() -> None:
+    namespace = {"u": "urn:schemas-microsoft-com:unattend"}
+    answer = ET.parse(RECIPE / "Autounattend.xml")
+    paths = answer.findall(".//u:RunSynchronousCommand/u:Path", namespace)
+    assert paths
+    # Windows rejects the whole answer file when one command exceeds this limit.
+    assert all(item.text and len(item.text) <= 259 for item in paths)
