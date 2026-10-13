@@ -20,7 +20,7 @@ from xml.sax.saxutils import escape
 from pydantic import BaseModel, ConfigDict, Field
 
 from image_factory.artifacts import sha256
-from image_factory.sources import Source
+from image_factory.sources import BuildSource, Source
 from image_factory.targets import load_target
 
 
@@ -159,7 +159,19 @@ def build() -> None:
     source = Source.model_validate_json(
         (target.directory / "source.pkrvars.json").read_text()
     )
-    verify_iso(iso, source.source_checksum)
+    skip_value = os.environ.get("WINDOWS_SKIP_CHECKSUM", "0")
+    if skip_value not in ("0", "1"):
+        raise ValueError("WINDOWS_SKIP_CHECKSUM must be 0 or 1")
+    skip_checksum = skip_value == "1"
+    if skip_checksum:
+        if not iso.is_file():
+            raise FileNotFoundError(f"ISO file not found: {iso}")
+        # Keep Packer tied to these bytes even when the reviewed pin is bypassed.
+        source = source.model_copy(update={"source_checksum": f"sha256:{sha256(iso)}"})
+        print("Windows ISO source pin check skipped. Driver checks remain active.")
+    else:
+        verify_iso(iso, source.source_checksum)
+    record = BuildSource(source=source, checksum_verified=not skip_checksum)
     if target.disk.parent.exists() or target.box.exists():
         raise ValueError(f"Build output already exists in {target.dist}")
     target.dist.mkdir(parents=True, exist_ok=True)
@@ -221,12 +233,17 @@ def build() -> None:
                 "-color=false",
                 "-on-error=cleanup",
                 f"-var-file={target.directory / 'source.pkrvars.json'}",
+                f"-var=source_checksum={source.source_checksum}",
                 template,
             ],
             root=target.root,
             environment=environment,
             log_path=reports / f"{target.name}-packer.log",
             password=password,
+        )
+        # The shared manifest must describe the selected ISO, not a bypassed pin.
+        (target.dist / "source.json").write_text(
+            record.model_dump_json(indent=2) + "\n"
         )
 
 

@@ -9,6 +9,69 @@ from image_factory.artifacts import unpack_box
 from image_factory.targets import Target, load_target
 
 
+@pytest.mark.parametrize("verified", [False, True])
+def test_private_manifest_reads_the_source_used_by_the_build(
+    tmp_path: Path, verified: bool
+) -> None:
+    from image_factory.artifacts import read_build_source
+
+    target = load_target("windows-11-arm64").model_copy(update={"root": tmp_path})
+    target.dist.mkdir(parents=True)
+    source = {
+        "source_url": "https://www.microsoft.com/en-us/software-download/windows11arm64",
+        "source_build": "26300.9457",
+        "source_checksum": "sha256:" + "ab" * 32,
+    }
+    (target.dist / "source.json").write_text(
+        json.dumps({"source": source, "checksum_verified": verified})
+    )
+    record = read_build_source(target)
+    assert record.source.model_dump() == source
+    assert record.checksum_verified is verified
+
+
+@pytest.mark.parametrize("checksum", ["none", "invalid", "sha256:abc"])
+def test_private_build_source_rejects_invalid_recorded_checksums(
+    tmp_path: Path, checksum: str
+) -> None:
+    from image_factory.artifacts import read_build_source
+
+    target = load_target("windows-11-arm64").model_copy(update={"root": tmp_path})
+    target.dist.mkdir(parents=True)
+    (target.dist / "source.json").write_text(
+        json.dumps(
+            {
+                "source": {
+                    "source_url": "https://www.microsoft.com/en-us/software-download/windows11arm64",
+                    "source_build": "26300.9457",
+                    "source_checksum": checksum,
+                },
+                "checksum_verified": False,
+            }
+        )
+    )
+    with pytest.raises(ValueError):
+        read_build_source(target)
+
+
+def test_public_manifest_uses_the_reviewed_source_pin(tmp_path: Path) -> None:
+    from image_factory.artifacts import read_build_source
+
+    target = load_target("debian-13-arm64").model_copy(update={"root": tmp_path})
+    target.directory.mkdir(parents=True)
+    target.dist.mkdir(parents=True)
+    source = {
+        "source_url": "https://cloud.debian.org/images/cloud/trixie/20261012-0000/debian-13-generic-arm64.qcow2",
+        "source_build": "20261012-0000",
+        "source_checksum": "sha512:" + "ab" * 64,
+    }
+    (target.directory / "source.pkrvars.json").write_text(json.dumps(source))
+    (target.dist / "source.json").write_text("invalid private record")
+    record = read_build_source(target)
+    assert record.source.model_dump() == source
+    assert record.checksum_verified is True
+
+
 def test_windows_box_can_use_its_own_winrm_account(tmp_path: Path) -> None:
     values = load_target().model_dump() | {
         "name": "windows-11-arm64",
