@@ -202,3 +202,157 @@ def test_draft_can_be_retried_without_changing_the_existing_draft(
     monkeypatch.setattr(release, "gh", calls.append)
     release.draft("v0.1.0")
     assert calls == []
+
+
+@pytest.fixture
+def draft_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Keep real asset bodies while isolating Git and the GitHub boundary."""
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.2.0"\n')
+    monkeypatch.setattr(
+        release.subprocess, "check_output", Mock(return_value="ab" * 20)
+    )
+    target = load_target()
+    monkeypatch.setattr(release, "enabled_targets", Mock(return_value=[target]))
+    assets = []
+    for name, body in {
+        "debian-13-arm64.box": b"tested box",
+        "debian-13-arm64-build-manifest.json": b"{}",
+        "debian-13-arm64.json": b'{"name":"cdelgehier/debian-13-arm64","versions":[]}',
+    }.items():
+        asset = tmp_path / name
+        asset.write_bytes(body)
+        assets.append(asset)
+    monkeypatch.setattr(release, "checked_assets", Mock(return_value=assets))
+    monkeypatch.setattr(
+        release,
+        "release_record",
+        Mock(return_value={"id": 42, "draft": True, "assets": []}),
+    )
+    return assets
+
+
+def test_published_json_assets_use_the_content_type_vagrant_requires(
+    draft_assets: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    responses = [""]
+    for asset in draft_assets[1:]:
+        responses.append(
+            json.dumps(
+                {
+                    "content_type": "application/json",
+                    "state": "uploaded",
+                    "size": asset.stat().st_size,
+                }
+            )
+        )
+    responses.append("")
+    github = Mock(side_effect=responses)
+    monkeypatch.setattr(release, "gh", github)
+
+    release.publish("v0.2.0")
+
+    uploads = [call.args for call in github.call_args_list if call.args[0] == "api"]
+    assert len(uploads) == 2
+    for arguments, asset in zip(uploads, draft_assets[1:], strict=True):
+        assert (
+            "--method" in arguments
+            and arguments[arguments.index("--method") + 1] == "POST"
+        )
+        assert (
+            arguments[arguments.index("--header") + 1]
+            == "Content-Type: application/json"
+        )
+        assert arguments[arguments.index("--input") + 1] == str(asset)
+        assert f"/releases/42/assets?name={asset.name}" in arguments[1]
+    binary_upload = github.call_args_list[0].args
+    assert str(draft_assets[0]) in binary_upload
+    assert all(str(asset) not in binary_upload for asset in draft_assets[1:])
+    assert github.call_args_list[-1].args == (
+        "release",
+        "edit",
+        "v0.2.0",
+        "--repo",
+        "cdelgehier/image-factory",
+        "--draft=false",
+        "--latest",
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"content_type": "application/octet-stream", "state": "uploaded", "size": 2},
+        {"content_type": "application/json", "state": "starter", "size": 2},
+        {"content_type": "application/json", "state": "uploaded", "size": 1},
+    ],
+)
+def test_bad_json_upload_keeps_the_release_unpublished(
+    draft_assets: list[Path], response: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    github = Mock(return_value=json.dumps(response))
+    monkeypatch.setattr(release, "gh", github)
+    with pytest.raises(ValueError, match="JSON upload"):
+        release.publish("v0.2.0")
+    assert not any(
+        call.args[:2] == ("release", "edit") for call in github.call_args_list
+    )
+
+
+def test_retry_replaces_only_json_assets_in_the_unpublished_draft(
+    draft_assets: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        release,
+        "release_record",
+        Mock(
+            return_value={
+                "id": 42,
+                "draft": True,
+                "assets": [{"id": 7, "name": draft_assets[1].name}],
+            }
+        ),
+    )
+    github = Mock(
+        side_effect=[
+            "",
+            "",
+            json.dumps(
+                {
+                    "content_type": "application/json",
+                    "state": "uploaded",
+                    "size": draft_assets[1].stat().st_size,
+                }
+            ),
+            json.dumps(
+                {
+                    "content_type": "application/json",
+                    "state": "uploaded",
+                    "size": draft_assets[2].stat().st_size,
+                }
+            ),
+            "",
+        ]
+    )
+    monkeypatch.setattr(release, "gh", github)
+    release.publish("v0.2.0")
+    assert github.call_args_list[1].args == (
+        "api",
+        "repos/cdelgehier/image-factory/releases/assets/7",
+        "--method",
+        "DELETE",
+    )
+
+
+def test_publish_does_not_replace_assets_on_an_existing_public_release(
+    draft_assets: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        release, "release_record", Mock(return_value={"id": 42, "draft": False})
+    )
+    github = Mock()
+    monkeypatch.setattr(release, "gh", github)
+    with pytest.raises(ValueError, match="draft release"):
+        release.publish("v0.2.0")
+    github.assert_not_called()
