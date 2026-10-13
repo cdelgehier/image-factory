@@ -13,6 +13,7 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from image_factory.artifacts import BoxMetadata, read_box_metadata, sha256, unpack_box
 from image_factory.catalogue import (
@@ -213,6 +214,58 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
     ]
 
 
+def upload_assets(tag: str, record: dict[str, Any], assets: list[Path]) -> None:
+    """Upload JSON with its real media type so Vagrant can detect catalogues.
+
+    GitHub CLI's release upload uses octet-stream for these files. Vagrant
+    checks the HTTP content type before reading a remote catalogue, so use
+    the upload API for JSON and verify its response before publication.
+    """
+
+    binary_assets = [asset for asset in assets if asset.suffix != ".json"]
+    if binary_assets:
+        gh(
+            "release",
+            "upload",
+            tag,
+            *map(str, binary_assets),
+            "--repo",
+            REPOSITORY,
+            "--clobber",
+        )
+    for asset in assets:
+        if asset.suffix != ".json":
+            continue
+        # A retry may replace an incomplete upload, but only in this draft.
+        for previous in record["assets"]:
+            if previous["name"] == asset.name:
+                gh(
+                    "api",
+                    f"repos/{REPOSITORY}/releases/assets/{previous['id']}",
+                    "--method",
+                    "DELETE",
+                )
+        query = urlencode({"name": asset.name})
+        uploaded = json.loads(
+            gh(
+                "api",
+                f"https://uploads.github.com/repos/{REPOSITORY}/releases/{record['id']}/assets?{query}",
+                "--method",
+                "POST",
+                "--header",
+                "Content-Type: application/json",
+                "--input",
+                str(asset),
+            )
+        )
+        if (
+            uploaded.get("content_type") != "application/json"
+            or uploaded.get("state") != "uploaded"
+            or uploaded.get("size") != asset.stat().st_size
+        ):
+            raise ValueError(f"Invalid JSON upload: {asset.name}")
+
+
 def publish(tag: str) -> None:
     """Check all targets, upload to the draft, then make the release public.
 
@@ -239,7 +292,7 @@ def publish(tag: str) -> None:
     for asset in assets:
         validate_asset(asset.stat().st_size)
     # Replacing files is allowed only in the draft, so failed uploads can be retried.
-    gh("release", "upload", tag, *map(str, assets), "--repo", REPOSITORY, "--clobber")
+    upload_assets(tag, record, assets)
     # Keep this last: the stable catalogue URL must point at a complete release.
     gh("release", "edit", tag, "--repo", REPOSITORY, "--draft=false", "--latest")
 
