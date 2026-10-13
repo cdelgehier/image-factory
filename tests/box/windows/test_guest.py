@@ -39,6 +39,25 @@ def test_vagrant_can_upload_a_file(machines: Path) -> None:
     assert result["content"] == "image-factory Windows upload test"
 
 
+def test_winrm_rejects_plaintext_and_keeps_the_firewall_enabled(machines: Path) -> None:
+    result = powershell(
+        machines,
+        "first",
+        "$listeners = @(Get-ChildItem WSMan:/localhost/Listener); "
+        "@{unencrypted=(Get-Item WSMan:/localhost/Service/AllowUnencrypted).Value; "
+        "http=@($listeners | Where-Object { $_.Keys -contains 'Transport=HTTP' }).Count; "
+        "https=@($listeners | Where-Object { $_.Keys -contains 'Transport=HTTPS' }).Count; "
+        "disabled_firewalls=@(Get-NetFirewallProfile | Where-Object Enabled -EQ False).Count} "
+        "| ConvertTo-Json -Compress",
+    )
+    assert result == {
+        "unencrypted": "false",
+        "http": 0,
+        "https": 1,
+        "disabled_firewalls": 0,
+    }
+
+
 def test_generalized_clones_have_separate_identities_and_certificates(
     machines: Path,
 ) -> None:
