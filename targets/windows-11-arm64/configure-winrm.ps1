@@ -17,7 +17,15 @@ Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -contains 'Tran
 $certificate = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My -FriendlyName ImageFactory-WinRM
 New-Item WSMan:\localhost\Listener -Transport HTTPS -Address '*' -CertificateThumbprint $certificate.Thumbprint -Force | Out-Null
 Set-Item WSMan:\localhost\Service\Auth\Basic $true
-Set-Item WSMan:\localhost\Service\AllowUnencrypted $false
+# Writing an unchanged service setting can trigger the WSMan Public-network bug.
+# Keep the secure default and fail if the service accepts unencrypted traffic.
+$allowUnencrypted = 'WSMan:\localhost\Service\AllowUnencrypted'
+if ((Get-Item $allowUnencrypted).Value -ne 'false') {
+    Set-Item $allowUnencrypted -Value $false
+}
+if ((Get-Item $allowUnencrypted).Value -ne 'false') {
+    throw 'WinRM must reject unencrypted traffic.'
+}
 Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -contains 'Transport=HTTP' } | Remove-Item -Recurse -Force
 Get-NetFirewallRule -Name 'WINRM-HTTP-In-TCP*' -ErrorAction SilentlyContinue | Disable-NetFirewallRule
 if (!(Get-NetFirewallRule -Name ImageFactory-WinRM -ErrorAction SilentlyContinue)) {
