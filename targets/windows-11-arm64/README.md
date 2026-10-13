@@ -43,9 +43,60 @@ and build `26300.9457`.
 
 Microsoft's download links expire, so the recipe requires a file path instead
 of saving a signed URL. It rejects an ISO whose checksum differs from
-`source.pkrvars.json`. For newer media, download the ISO from Microsoft, confirm
-its language, architecture and build, then calculate its SHA-256. Update the
-source build and checksum together. Source updates are manual for this target.
+`source.pkrvars.json`.
+
+### Verify or update the ISO pin
+
+The checksum above identifies one exact ISO. It stays the same for that file,
+but Microsoft replaces its downloads with newer builds. In six months, the
+ISO available from the same page may have a different name, build and checksum.
+Source updates are manual for this target.
+
+1. Open the [official ARM64 download page](https://www.microsoft.com/en-us/software-download/windows11arm64).
+   Select the multi-edition ARM64 ISO, then **English (United States)**.
+   Confirm the language and note the build shown above the download link.
+2. Expand **Verify your download** below that link. Find the **English 64-bit**
+   SHA-256 value; English International is a different ISO.
+3. Download the ISO from that page. Set `WINDOWS_ISO` to the new file, then
+   calculate its SHA-256 on macOS:
+
+   ```sh
+   shasum -a 256 "$WINDOWS_ISO"
+   ```
+
+   Compare the 64 hexadecimal characters with Microsoft's value. Letter case
+   does not matter. A different result can mean a different build or language,
+   an incomplete download, or an outdated Microsoft table.
+
+Microsoft's table can also have incorrect language labels. When this pin was
+checked, the official en-US download for `26300.9457` had the checksum above,
+but the table listed that checksum under Arabic. The ISO's setup files and Pro
+image metadata confirmed en-US and ARM64. If the table disagrees with a fresh
+official download, confirm the download's build, language and image metadata
+before accepting it. Calculating a local hash alone does not verify its origin.
+
+After verifying the new ISO, edit `targets/windows-11-arm64/source.pkrvars.json`:
+
+- Set `source_build` to its Windows build, such as `26300.9457`.
+- Set `source_checksum` to `sha256:` followed by its lowercase SHA-256 value.
+- Keep `source_url` set to the official download page. Signed ISO links expire.
+
+Update this guide's example filename, build and checksum when changing the
+shared pin. Review the source change, then run the checks, build and guest tests:
+
+```sh
+git diff -- targets/windows-11-arm64/source.pkrvars.json
+task ci
+task box:build TARGET=windows-11-arm64
+task test:box TARGET=windows-11-arm64
+```
+
+Run the guest tests only after a successful build. A newer ISO may also need
+changes to unattended setup; configuration checks alone cannot prove it works.
+
+There is no checksum bypass in this recipe. Both preparation and Packer check
+the source pin, and `none` is rejected. Updating the verified pin lets you use
+new media while keeping the checks active for later builds.
 
 The build downloads a pinned [UTM driver ISO](https://docs.getutm.app/guest-support/windows/)
 and checks its SHA-256 before extracting the Windows 11 ARM64 network driver.
