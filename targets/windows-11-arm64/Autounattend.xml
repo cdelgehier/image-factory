@@ -52,6 +52,10 @@
     </component>
   </settings>
   <settings pass="oobeSystem">
+    <!-- WinPE language settings do not answer the first-start region and keyboard pages. -->
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale><SystemLocale>en-US</SystemLocale><UILanguage>en-US</UILanguage><UserLocale>en-US</UserLocale>
+    </component>
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <UserAccounts><LocalAccounts><LocalAccount wcm:action="add">
         <Name>vagrant</Name><Group>Administrators</Group>

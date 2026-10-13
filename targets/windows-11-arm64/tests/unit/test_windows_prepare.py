@@ -498,3 +498,17 @@ def test_unattended_setup_commands_fit_windows_path_limits() -> None:
     assert paths
     # Windows rejects the whole answer file when one command exceeds this limit.
     assert all(item.text and len(item.text) <= 259 for item in paths)
+
+
+@pytest.mark.parametrize("filename", ["Autounattend.xml", "Sysprep.xml"])
+def test_setup_and_clones_set_the_region_before_the_first_login(filename: str) -> None:
+    namespace = {"u": "urn:schemas-microsoft-com:unattend"}
+    answer = ET.parse(RECIPE / filename)
+    region = answer.find(
+        ".//u:settings[@pass='oobeSystem']/"
+        "u:component[@name='Microsoft-Windows-International-Core']",
+        namespace,
+    )
+    assert region is not None, "OOBE must not wait for a region or keyboard selection"
+    for setting in ("InputLocale", "SystemLocale", "UILanguage", "UserLocale"):
+        assert region.findtext(f"u:{setting}", namespaces=namespace) == "en-US"
