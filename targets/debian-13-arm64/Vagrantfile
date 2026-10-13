@@ -1,3 +1,27 @@
+# macOS can return a dead socket when a timed connection is refused.
+# Check the peer address before reporting a real forwarded-port collision.
+# https://github.com/hashicorp/vagrant/issues/13845
+if RUBY_PLATFORM.include?("darwin")
+  require "vagrant/util/is_port_open"
+  module Vagrant
+    module Util
+      module IsPortOpen
+        def is_port_open?(host, port)
+          Socket.tcp(host, port, connect_timeout: 0.1) do |connection|
+            connection.remote_address
+            true
+          end
+        rescue Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH,
+          Errno::ENETUNREACH, Errno::EACCES, Errno::ENOTCONN,
+          Errno::EALREADY, Errno::EINVAL
+          false
+        end
+        extend IsPortOpen
+      end
+    end
+  end
+end
+
 Vagrant.configure("2") do |config|
   config.ssh.username = "debian"
   config.ssh.insert_key = true
