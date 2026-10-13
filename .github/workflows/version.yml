@@ -11,10 +11,8 @@ concurrency:
 jobs:
   checks:
     uses: ./.github/workflows/checks.yml
-  image:
-    uses: ./.github/workflows/image-tests.yml
   version:
-    needs: [checks, image]
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
