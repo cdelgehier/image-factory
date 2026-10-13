@@ -49,7 +49,8 @@ try {
         $buffer = New-Object byte[] (4MB)
         $remaining = [IO.DriveInfo]::new('C:\').AvailableFreeSpace - 512MB
         while ($remaining -gt 0) {
-            $count = [int][Math]::Min($buffer.Length, $remaining)
+            # Force the 64-bit overload: free space can exceed the 32-bit limit.
+            $count = [int][Math]::Min([long]$buffer.Length, [long]$remaining)
             $stream.Write($buffer, 0, $count)
             $remaining -= $count
         }

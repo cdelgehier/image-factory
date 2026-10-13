@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 RECIPE = Path(__file__).resolve().parents[2]
 
 
@@ -89,3 +91,45 @@ exit $LASTEXITCODE
     report = directory / "cleanup.log"
     assert report.is_file()
     assert "Hibernation cleanup failed in the test guest" in report.read_text()
+
+
+@pytest.mark.parametrize(
+    "remaining,expected", [(48 * 1024**3, 4 * 1024**2), (123, 123)]
+)
+def test_zero_write_size_accepts_more_than_two_gib_of_free_space(
+    tmp_path: Path, remaining: int, expected: int
+) -> None:
+    """Exercise PowerShell's real overload selection without filling a disk."""
+
+    harness = tmp_path / "block-size.ps1"
+    # Execute the guest's calculation rather than repeating it in the test.
+    # The parser selects the assignment without depending on line formatting.
+    harness.write_text(
+        """
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:CLEANUP_SCRIPT, [ref]$tokens, [ref]$parseErrors)
+$assignment = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -eq '$count'
+}, $true)
+$buffer = New-Object byte[] (4MB)
+$remaining = [long]$env:REMAINING_BYTES
+Invoke-Expression $assignment.Right.Extent.Text
+"""
+    )
+    result = subprocess.run(
+        ["pwsh", "-NoProfile", "-File", str(harness)],
+        env=os.environ
+        | {
+            "CLEANUP_SCRIPT": str(RECIPE / "cleanup.ps1"),
+            "REMAINING_BYTES": str(remaining),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) == expected
