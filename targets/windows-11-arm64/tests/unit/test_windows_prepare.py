@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import time
 import xml.etree.ElementTree as ET
 from contextlib import suppress
 from importlib.util import module_from_spec, spec_from_file_location
@@ -106,11 +107,15 @@ def test_packer_progress_is_visible_before_the_process_finishes(tmp_path: Path) 
     assert process.returncode == 0
 
 
+@pytest.mark.parametrize("repeat_interrupt", [False, True])
 def test_packer_cancellation_waits_for_cleanup_and_keeps_the_last_messages(
     tmp_path: Path,
+    repeat_interrupt: bool,
 ) -> None:
     private = tmp_path / "private-build"
     log_path = tmp_path / "packer.log"
+    cleanup_started = tmp_path / "cleanup-started"
+    finish_cleanup = tmp_path / "finish-cleanup"
     child = (
         "import os, pathlib, sys, time\n"
         "private = pathlib.Path(sys.argv[1])\n"
@@ -119,7 +124,9 @@ def test_packer_cancellation_waits_for_cleanup_and_keeps_the_last_messages(
         "try:\n"
         "    time.sleep(30)\n"
         "except KeyboardInterrupt:\n"
-        "    time.sleep(0.1)\n"
+        "    private.with_name('cleanup-started').touch()\n"
+        "    while not private.with_name('finish-cleanup').exists():\n"
+        "        time.sleep(0.01)\n"
         "    private.unlink()\n"
         "    print('Cleanly cancelled Build-secret-1234', flush=True)\n"
         "    sys.exit(130)\n"
@@ -158,8 +165,17 @@ def test_packer_cancellation_waits_for_cleanup_and_keeps_the_last_messages(
             assert process.stdout.readline() == "Waiting for WinRM\n"
             child_pid = int(private.read_text())
             os.kill(process.pid, signal.SIGINT)
+            deadline = time.monotonic() + 10
+            while not cleanup_started.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert cleanup_started.exists(), "The child did not start cleanup"
+            if repeat_interrupt:
+                # Task may forward the same terminal interrupt a second time.
+                os.kill(process.pid, signal.SIGINT)
+            finish_cleanup.touch()
             output, _ = process.communicate(timeout=10)
         finally:
+            finish_cleanup.touch()
             if child_pid is not None:
                 with suppress(ProcessLookupError):
                     os.killpg(child_pid, signal.SIGKILL)

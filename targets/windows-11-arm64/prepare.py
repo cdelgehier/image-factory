@@ -113,16 +113,21 @@ def run_packer(
                 record_progress(line, log, password)
             returncode = process.wait()
         except KeyboardInterrupt:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGINT)
+            # Task can forward SIGINT twice. Let the first request finish cleanup.
+            previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
-                output, _ = process.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                # A stuck plugin must not leave this build's QEMU running.
                 with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
-                output, _ = process.communicate()
-            record_progress(output, log, password)
+                    os.killpg(process.pid, signal.SIGINT)
+                try:
+                    output, _ = process.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    # A stuck plugin must not leave this build's QEMU running.
+                    with suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    output, _ = process.communicate()
+                record_progress(output, log, password)
+            finally:
+                signal.signal(signal.SIGINT, previous)
             raise
         if returncode:
             raise subprocess.CalledProcessError(returncode, command)
@@ -228,6 +233,8 @@ def build() -> None:
 if __name__ == "__main__":
     try:
         build()
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
     except (FileNotFoundError, ValueError) as error:
         # Input errors need an actionable message; unexpected errors keep a traceback.
         raise SystemExit(str(error)) from error
