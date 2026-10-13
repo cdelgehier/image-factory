@@ -1,0 +1,34 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "image-factory/windows-11-arm64"
+  config.vm.box_architecture = "arm64"
+  config.vm.box_check_update = false
+  config.vm.hostname = "windows-lab"
+  # QEMU does not keep automatically corrected WinRM ports between commands.
+  config.vm.network "forwarded_port", guest: 5986, host: 55986,
+    host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: false
+
+  # Desktop and file access stay on the host's loopback address.
+  config.vm.network "forwarded_port", guest: 3389, host: 13389,
+    host_ip: "127.0.0.1", id: "rdp", auto_correct: false
+  config.vm.network "forwarded_port", guest: 445, host: 1445,
+    host_ip: "127.0.0.1", id: "documents", auto_correct: false
+  config.rdp.username = "vagrant"
+
+  config.vm.provider "qemu" do |qemu|
+    qemu.arch = "aarch64"
+    qemu.machine = "virt,accel=hvf"
+    qemu.cpu = "host"
+    qemu.smp = "4"
+    qemu.memory = "8G"
+    # QEMU reserves an SSH port even when Windows uses WinRM.
+    qemu.ssh_auto_correct = true
+    qemu.drive_interface = "none"
+    qemu.net_device = "virtio-net-pci"
+    # Keep the installation's NVMe storage and physical UEFI framebuffer.
+    qemu.extra_qemu_args = ["-device", "ramfb",
+      "-device", "nvme,drive=disk0,serial=image-factory"]
+  end
+
+  # WinRM already has admin rights; use it without a second scheduled logon.
+  config.vm.provision "shell", path: "desktop.ps1", privileged: false
+end
