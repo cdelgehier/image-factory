@@ -63,7 +63,8 @@ source "qemu" "windows" {
   shutdown_command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/ImageFactory/shutdown.ps1"
   shutdown_timeout = "30m"
   boot_wait        = "3s"
-  boot_command     = [join("", [for attempt in range(20) : "<spacebar><wait1>"])]
+  # A letter starts the DVD without activating Setup buttons on later presses.
+  boot_command = [join("", [for attempt in range(10) : "x<wait1>"])]
   # Replace all drives and devices together: ARM Windows reads NVMe and USB media.
   # This avoids depending on an x86 storage driver during Windows Setup.
   qemuargs = [
@@ -79,7 +80,8 @@ source "qemu" "windows" {
     ["-device", "usb-storage,drive=seed,bus=xhci.0"],
     ["-device", "usb-kbd,bus=xhci.0"],
     ["-device", "usb-tablet,bus=xhci.0"],
-    ["-device", "virtio-gpu-pci"],
+    # Windows needs a physical UEFI framebuffer before display drivers are loaded.
+    ["-device", "ramfb"],
     ["-device", "virtio-net-pci,netdev=user.0"],
   ]
 }
