@@ -38,6 +38,23 @@ if defined?(VagrantPlugins::CommunicatorWinRM)
   Vagrant.plugin("2").manager.communicators.get(:winrm).prepend(ImageFactoryWinRMBoot)
 end
 
+# QEMU's ACPI power button does not shut down this Windows ARM64 guest.
+# Use the provider's action context so forced stops still skip WinRM.
+if defined?(VagrantPlugins::QEMU)
+  require "vagrant-qemu/action/stop_instance"
+  module ImageFactoryWindowsShutdown
+    def call(environment)
+      machine = environment[:machine]
+      if machine.config.vm.guest == :windows && machine.state.id == :running && !environment[:force_halt]
+        # Give WinRM time to return before Windows closes its services and disk.
+        machine.communicate.execute('shutdown.exe /s /t 5 /f /d p:4:1 /c "Vagrant Halt"')
+      end
+      super
+    end
+  end
+  VagrantPlugins::QEMU::Action::StopInstance.prepend(ImageFactoryWindowsShutdown)
+end
+
 Vagrant.configure("2") do |config|
   config.vm.guest = :windows
   config.vm.communicator = "winrm"
@@ -51,17 +68,6 @@ Vagrant.configure("2") do |config|
   config.vm.synced_folder ".", "/vagrant", disabled: true
   config.vm.network "forwarded_port", guest: 5986, host: 55986,
     host_ip: "127.0.0.1", id: "winrm-ssl", auto_correct: true
-  # QEMU's ACPI power button does not shut down this Windows ARM64 guest.
-  # Give WinRM time to return before Windows closes its services and disk.
-  config.trigger.before :halt, :reload, :destroy do |trigger|
-    trigger.name = "Shut down Windows"
-    trigger.ruby do |environment, machine|
-      next unless machine.state.id == :running
-      next if environment[:force_halt]
-
-      machine.communicate.execute('shutdown.exe /s /t 5 /f /d p:4:1 /c "Vagrant Halt"')
-    end
-  end
   config.vm.provider "qemu" do |qemu|
     qemu.arch = "aarch64"
     qemu.machine = "virt,accel=hvf"
