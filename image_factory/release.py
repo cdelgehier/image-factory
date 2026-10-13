@@ -217,11 +217,11 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
 
 
 def upload_assets(tag: str, record: dict[str, Any], assets: list[Path]) -> None:
-    """Upload JSON with its real media type so Vagrant can detect catalogues.
+    """Upload JSON with its media type and check the asset records.
 
-    GitHub CLI's release upload uses octet-stream for these files. Vagrant
-    checks the HTTP content type before reading a remote catalogue, so use
-    the upload API for JSON and verify its response before publication.
+    The API records JSON correctly, but public release downloads can still
+    return octet-stream. The Pages workflow serves the Vagrant catalogues
+    with the HTTP headers needed by consumers.
     """
 
     binary_assets = [asset for asset in assets if asset.suffix != ".json"]

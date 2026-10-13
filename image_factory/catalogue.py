@@ -51,13 +51,31 @@ def add_version(
             "versions": [],
         }
     )
+    validate_catalogue(catalogue, target)
+    versions = catalogue["versions"]
+    if any(entry["version"] == tag[1:] for entry in versions):
+        raise ValueError("The published version already exists")
+    providers = make_providers(tag, checksum, target)
+    versions.append({"version": tag[1:], "providers": providers})
+    versions.sort(key=version_key, reverse=True)
+    return catalogue
+
+
+def validate_catalogue(catalogue: dict[str, Any], target: Target) -> None:
+    """Check published metadata before reusing it in a release or on Pages.
+
+    Every version must point at this target's immutable release asset. This
+    also keeps a damaged checksum or another architecture out of the site.
+    """
+
+    box_name = f"{REPOSITORY.split('/')[0]}/{target.name}"
     if catalogue.get("name") != box_name or not isinstance(
         catalogue.get("versions"), list
     ):
         raise ValueError("Invalid previous catalogue")
-    versions = catalogue["versions"]
     # Recheck old entries because the catalogue comes from a published asset.
-    for entry in versions:
+    seen = set()
+    for entry in catalogue["versions"]:
         if (
             not isinstance(entry, dict)
             or not re.fullmatch(TAG_PATTERN, "v" + str(entry.get("version", "")))
@@ -71,12 +89,9 @@ def add_version(
             "v" + entry["version"], old_providers[0].get("checksum", ""), target
         ):
             raise ValueError("Invalid previous provider metadata")
-        if entry["version"] == tag[1:]:
-            raise ValueError("The published version already exists")
-    providers = make_providers(tag, checksum, target)
-    versions.append({"version": tag[1:], "providers": providers})
-    versions.sort(key=version_key, reverse=True)
-    return catalogue
+        if entry["version"] in seen:
+            raise ValueError("Duplicate published version")
+        seen.add(entry["version"])
 
 
 def version_key(entry: dict[str, Any]) -> tuple[int, ...]:

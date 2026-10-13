@@ -17,6 +17,10 @@ from image_factory.targets import all_targets
         (["tests/box/windows/test_guest.py"], []),
         (["targets/windows-11-arm64/tests/unit/test_windows_prepare.py"], []),
         (["tests/unit/test_targets.py"], []),
+        (["image_factory/catalogue.py", "image_factory/catalogue_site.py"], []),
+        ([".github/workflows/catalogue.yml", ".github/catalogue.Taskfile.yml"], []),
+        (["image_factory/image_selection.py"], []),
+        (["image_factory/release.py"], []),
         (["targets/debian-13-arm64/source.pkrvars.json"], ["debian-13-arm64"]),
         (["targets/ubuntu-26.04-arm64/build.pkr.hcl"], ["ubuntu-26.04-arm64"]),
         (

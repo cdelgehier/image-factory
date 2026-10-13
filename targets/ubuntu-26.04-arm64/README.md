@@ -10,10 +10,10 @@ passwordless sudo, Python 3, rsync, cloud-init and the QEMU guest agent.
 | SSH account | `ubuntu` |
 | Architecture | `arm64` in Vagrant, `aarch64` in QEMU |
 | Disk | 12 GiB, standalone QCOW2 |
-| Catalogue | [ubuntu-26.04-arm64.json](https://github.com/cdelgehier/image-factory/releases/latest/download/ubuntu-26.04-arm64.json) |
+| Catalogue | [ubuntu-26.04-arm64.json](https://cdelgehier.github.io/image-factory/ubuntu-26.04-arm64.json) |
 
-The catalogue becomes available after a release is published. It contains
-all published versions with `libvirt` and `qemu` entries for the same archive.
+GitHub Pages serves the catalogue with all published versions. Its `libvirt`
+and `qemu` entries point to the same archive in GitHub Releases.
 The tested provider is `vagrant-qemu` 0.6.3 on macOS.
 
 ## One machine on Apple Silicon
@@ -24,7 +24,7 @@ then create this `Vagrantfile` in an empty directory:
 ```ruby
 Vagrant.configure("2") do |config|
   config.vm.box = "cdelgehier/ubuntu-26.04-arm64"
-  config.vm.box_url = "https://github.com/cdelgehier/image-factory/releases/latest/download/ubuntu-26.04-arm64.json"
+  config.vm.box_url = "https://cdelgehier.github.io/image-factory/ubuntu-26.04-arm64.json"
   config.vm.box_architecture = "arm64"
   config.vm.hostname = "ubuntu"
   config.vm.usable_port_range = 50_223..50_232
@@ -63,7 +63,7 @@ Run `vagrant rsync` after changing host files; guest changes do not flow back.
 Vagrant replaces the standard public key on first boot. Keep the `ubuntu`
 account and `config.ssh.insert_key = true`.
 
-To select a published version, add `config.vm.box_version = "0.2.0"` with
+To select a published version, add `config.vm.box_version = "0.4.0"` with
 the version you need. The box supplies cloud-init user data and a boot timeout
 of 2700 seconds. Wait for cloud-init before running guest setup commands.
 
@@ -78,7 +78,7 @@ the host.
 ```ruby
 Vagrant.configure("2") do |config|
   config.vm.box = "cdelgehier/ubuntu-26.04-arm64"
-  config.vm.box_url = "https://github.com/cdelgehier/image-factory/releases/latest/download/ubuntu-26.04-arm64.json"
+  config.vm.box_url = "https://cdelgehier.github.io/image-factory/ubuntu-26.04-arm64.json"
   config.vm.box_architecture = "arm64"
   config.ssh.username = "ubuntu"
   config.ssh.insert_key = true

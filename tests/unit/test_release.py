@@ -239,7 +239,7 @@ def draft_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     return assets
 
 
-def test_published_json_assets_use_the_content_type_vagrant_requires(
+def test_published_json_assets_keep_the_correct_upload_records(
     draft_assets: list[Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     responses = [""]

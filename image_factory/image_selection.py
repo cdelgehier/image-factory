@@ -54,11 +54,22 @@ def affected_targets(paths: list[str], targets: list[Target]) -> list[Target]:
     selected: set[str] = set()
     for path in paths:
         parts = Path(path).parts
+        # Publication tools do not change the guest. Code checks still cover them.
         if (
             path.endswith(".md")
             or path.startswith(("docs/", "tests/unit/"))
             or path
-            in (".gitignore", ".pre-commit-config.yaml", ".github/dependabot.yml")
+            in (
+                ".gitignore",
+                ".pre-commit-config.yaml",
+                ".github/dependabot.yml",
+                ".github/workflows/catalogue.yml",
+                ".github/catalogue.Taskfile.yml",
+                "image_factory/catalogue.py",
+                "image_factory/catalogue_site.py",
+                "image_factory/release.py",
+                "image_factory/image_selection.py",
+            )
         ):
             continue
         if len(parts) >= 2 and parts[0] == "targets" and parts[1] in known_names:
