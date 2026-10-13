@@ -46,7 +46,8 @@
     </component>
     <component name="Microsoft-Windows-Deployment" processorArchitecture="arm64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <RunSynchronous><RunSynchronousCommand wcm:action="add"><Order>1</Order>
-        <Path>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$media = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path ($_.Root + 'image-factory-media') } | Select-Object -First 1; if (!$media) { throw 'Missing build media' }; &amp; ($media.Root + 'bootstrap.ps1')"</Path>
+        <!-- Windows limits this command to 259 characters. Missing media fails the script call. -->
+        <Path>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$media = Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path ($_.Root + 'image-factory-media') }; &amp; ($media.Root + 'bootstrap.ps1')"</Path>
       </RunSynchronousCommand></RunSynchronous>
     </component>
   </settings>
