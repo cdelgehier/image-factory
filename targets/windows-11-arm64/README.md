@@ -5,10 +5,8 @@ Microsoft installation ISO. **The Windows image is not included in GitHub
 releases or the public Vagrant catalogue.** Build it, add the local `.box`
 file to Vagrant, then reference that box in the project where you need it.
 
-The recipe is prepared for Windows 11 Pro ARM64. Configuration and unit checks
-run in CI. A complete Windows installation and the guest tests must pass on
-your build host before you use the image. The recipe has not yet completed
-an end-to-end Windows build.
+Configuration and unit checks run in CI. A complete Windows installation and
+the guest tests must pass on your build host before you use the image.
 
 ## Quick start
 
@@ -116,9 +114,16 @@ later Vagrant commands. Changing the environment variable alone does not change
 the guest password. Each fresh clone starts with the initial lab password.
 
 Shared folders are disabled. Use Vagrant's `file` and PowerShell provisioners
-to copy project files into the guest. The guest tests cover file upload, Windows
-and ARM64 identity, administrator access, lean apps, retained servicing,
-separate clone identities and certificates, shutdown and restart. Archive tests
+to copy project files into the guest. For desktop access and document exchange,
+use the [RDP and encrypted SMB example](examples/desktop/README.md).
+When running several Windows VMs, assign a different fixed WinRM host port to
+each VM. Keep `auto_correct: false` for the `winrm-ssl` forwarded port. QEMU does
+not keep a corrected WinRM port for later commands, which could then reach
+another VM. The desktop example shows where to set the port.
+The first boot can take five minutes or more while Windows prepares the clone.
+The guest tests cover file upload, Windows and ARM64 identity, administrator
+access, lean apps, retained servicing, separate clone identities and certificates,
+shutdown and restart. Archive tests
 check the metadata, disk checksum, QCOW2 integrity and lack of a backing file.
 
 ## Build requirements
