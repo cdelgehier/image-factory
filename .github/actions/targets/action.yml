@@ -1,9 +1,19 @@
 name: Read image targets
 description: Load the job matrix from the enabled image recipes
+inputs:
+  base-ref:
+    description: Compare image inputs with this Git reference; empty builds all targets
+    default: ""
+  head-ref:
+    description: Commit to compare with the base reference
+    default: HEAD
 outputs:
   matrix:
     description: Enabled target matrix
     value: ${{ steps.targets.outputs.matrix }}
+  has_targets:
+    description: Whether the selected matrix includes a public image
+    value: ${{ fromJSON(steps.targets.outputs.matrix).target[0] != null }}
 runs:
   using: composite
   steps:
@@ -17,3 +27,6 @@ runs:
     - id: targets
       shell: bash
       run: echo "matrix=$(task --silent targets:matrix)" >> "$GITHUB_OUTPUT"
+      env:
+        IMAGE_FACTORY_BASE_REF: ${{ inputs.base-ref }}
+        IMAGE_FACTORY_HEAD_REF: ${{ inputs.head-ref }}

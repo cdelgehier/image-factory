@@ -49,13 +49,13 @@ jobs:
           add-paths: targets/${{ matrix.target }}/source.pkrvars.json
           delete-branch: true
       - name: Start checks for the source pull request
-        if: steps.pull-request.outputs.pull-request-number != ''
+        if: steps.pull-request.outputs.pull-request-operation == 'created' || steps.pull-request.outputs.pull-request-operation == 'updated'
         run: |
           for context in 'Code checks' 'Box tests'; do
             gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD" -f state=pending -f "context=$context"
           done
           gh workflow run checks.yml --ref main -f "ref=$HEAD" -f "report_sha=$HEAD"
-          gh workflow run image-tests.yml --ref main -f "ref=$HEAD" -f "report_sha=$HEAD"
+          gh workflow run image-tests.yml --ref main -f "ref=$HEAD" -f "report_sha=$HEAD" -f base_ref=main
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD: ${{ steps.pull-request.outputs.pull-request-head-sha }}

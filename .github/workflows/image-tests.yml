@@ -1,6 +1,7 @@
 name: Image tests
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
     inputs:
       report_sha:
@@ -11,6 +12,10 @@ on:
         description: Commit or branch to build and test
         type: string
         default: main
+      base_ref:
+        description: Compare with this base; empty runs every public image
+        type: string
+        default: ""
   workflow_call:
     inputs:
       report_sha:
@@ -19,22 +24,34 @@ on:
       ref:
         type: string
         default: ""
+      base_ref:
+        type: string
+        default: ""
 permissions:
   contents: read
+concurrency:
+  group: image-tests-${{ github.event.pull_request.number || inputs.report_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 jobs:
   targets:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      has_targets: ${{ steps.targets.outputs.has_targets }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/targets
         id: targets
+        with:
+          base-ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || github.event.before || '' }}
+          head-ref: ${{ github.event.pull_request.head.sha || inputs.ref || github.sha }}
   box:
     needs: targets
+    if: needs.targets.outputs.has_targets == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     name: Box tests (${{ matrix.target }})
     runs-on: macos-26
     timeout-minutes: 150
@@ -66,8 +83,29 @@ jobs:
             dist/**/*.json
             dist/**/*.sha256
           retention-days: 14
-  source-status:
+  result:
+    name: Box tests
     needs: [targets, box]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the selected image results
+        env:
+          TARGET_RESULT: ${{ needs.targets.result }}
+          HAS_TARGETS: ${{ needs.targets.outputs.has_targets }}
+          BOX_RESULT: ${{ needs.box.result }}
+          DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+        run: |
+          [[ "$TARGET_RESULT" == success ]]
+          if [[ "$DRAFT" == true ]]; then
+            echo 'Image builds wait until this pull request is ready for review.'
+          elif [[ "$HAS_TARGETS" == true ]]; then
+            [[ "$BOX_RESULT" == success ]]
+          else
+            echo 'No public images need a build for this change.'
+          fi
+  source-status:
+    needs: result
     if: always() && github.event_name == 'workflow_dispatch' && inputs.report_sha != ''
     runs-on: ubuntu-latest
     permissions:
@@ -77,7 +115,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPORT_SHA: ${{ inputs.report_sha }}
-          RESULT: ${{ needs.box.result }}
+          RESULT: ${{ needs.result.result }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
