@@ -8,9 +8,12 @@ import os
 import platform
 import secrets
 import shutil
+import signal
 import subprocess
 import tempfile
+from contextlib import suppress
 from pathlib import Path
+from typing import TextIO
 from urllib.request import urlopen
 from xml.sax.saxutils import escape
 
@@ -69,6 +72,60 @@ def driver_media(recipe: Path, cache: Path) -> Path:
             shutil.copyfile(temporary.name, path)
     verify_iso(path, f"sha256:{checksum}")
     return path
+
+
+def record_progress(output: str, log: TextIO, password: str) -> None:
+    """Show each build message and save the same text without private credentials."""
+
+    public = output.replace(password, "<sensitive>")
+    # Flush both destinations so a stalled VM still has readable diagnostics.
+    log.write(public)
+    log.flush()
+    print(public, end="", flush=True)
+
+
+def run_packer(
+    command: list[str],
+    *,
+    root: Path,
+    environment: dict[str, str],
+    log_path: Path,
+    password: str,
+) -> None:
+    """Stream Packer output and allow it to clean up its VM after Ctrl+C."""
+
+    with (
+        log_path.open("w") as log,
+        subprocess.Popen(
+            command,
+            cwd=root,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            # Own a separate group so cancellation cannot stop other lab VMs.
+            start_new_session=True,
+        ) as process,
+    ):
+        assert process.stdout is not None
+        try:
+            for line in process.stdout:
+                record_progress(line, log, password)
+            returncode = process.wait()
+        except KeyboardInterrupt:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGINT)
+            try:
+                output, _ = process.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                # A stuck plugin must not leave this build's QEMU running.
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                output, _ = process.communicate()
+            record_progress(output, log, password)
+            raise
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, command)
 
 
 def build() -> None:
@@ -152,22 +209,20 @@ def build() -> None:
         }
         template = str(target.directory / "build.pkr.hcl")
         subprocess.run(["packer", "init", template], check=True)
-        with (reports / f"{target.name}-packer.log").open("w") as log:
-            subprocess.run(
-                [
-                    "packer",
-                    "build",
-                    "-color=false",
-                    "-on-error=cleanup",
-                    f"-var-file={target.directory / 'source.pkrvars.json'}",
-                    template,
-                ],
-                cwd=target.root,
-                env=environment,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-            )
+        run_packer(
+            [
+                "packer",
+                "build",
+                "-color=false",
+                "-on-error=cleanup",
+                f"-var-file={target.directory / 'source.pkrvars.json'}",
+                template,
+            ],
+            root=target.root,
+            environment=environment,
+            log_path=reports / f"{target.name}-packer.log",
+            password=password,
+        )
 
 
 if __name__ == "__main__":

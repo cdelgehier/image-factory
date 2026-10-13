@@ -3,9 +3,13 @@ import io
 import json
 import os
 import platform
+import select
+import signal
 import subprocess
+import sys
 import tarfile
 import xml.etree.ElementTree as ET
+from contextlib import suppress
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -16,6 +20,156 @@ spec = spec_from_file_location("windows_prepare", RECIPE / "prepare.py")
 assert spec is not None and spec.loader is not None
 prepare = module_from_spec(spec)
 spec.loader.exec_module(prepare)
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_packer_progress_reaches_the_terminal_and_log_without_credentials(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], exit_code: int
+) -> None:
+    password = "Build-private-password-123"
+    command = [
+        sys.executable,
+        "-c",
+        "import os, sys; print('Starting VM', flush=True); "
+        "print('Password: ' + os.environ['PKR_VAR_build_password'], "
+        f"file=sys.stderr, flush=True); sys.exit({exit_code})",
+    ]
+    log_path = tmp_path / "packer.log"
+    environment = os.environ | {"PKR_VAR_build_password": password}
+    if exit_code:
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            prepare.run_packer(
+                command,
+                root=tmp_path,
+                environment=environment,
+                log_path=log_path,
+                password=password,
+            )
+        assert error.value.returncode == exit_code
+    else:
+        prepare.run_packer(
+            command,
+            root=tmp_path,
+            environment=environment,
+            log_path=log_path,
+            password=password,
+        )
+    terminal = capsys.readouterr().out
+    assert "Starting VM\n" in terminal
+    assert "Password: <sensitive>\n" in terminal
+    assert password not in terminal
+    assert log_path.read_text() == terminal
+
+
+def test_packer_progress_is_visible_before_the_process_finishes(tmp_path: Path) -> None:
+    log_path = tmp_path / "packer.log"
+    gate = tmp_path / "continue"
+    child = (
+        "import pathlib, sys, time; print('Waiting for WinRM', flush=True); "
+        "gate = pathlib.Path(sys.argv[1]); "
+        "\nwhile not gate.exists(): time.sleep(0.05)\n"
+    )
+    wrapper = (
+        "import os, pathlib, runpy, sys; "
+        "sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parents[2])); "
+        "prepare = runpy.run_path(sys.argv[1]); "
+        "prepare['run_packer']([sys.executable, '-c', sys.argv[2], sys.argv[3]], "
+        "root=pathlib.Path.cwd(), environment=dict(os.environ), "
+        "log_path=pathlib.Path(sys.argv[4]), password='Build-secret-1234')"
+    )
+    with subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            wrapper,
+            str(RECIPE / "prepare.py"),
+            child,
+            str(gate),
+            str(log_path),
+        ],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
+        try:
+            assert process.stdout is not None
+            ready, _, _ = select.select([process.stdout], [], [], 10)
+            assert ready, "Packer progress was buffered until the build ended"
+            line = process.stdout.readline()
+            assert line == "Waiting for WinRM\n", line
+            assert process.poll() is None
+            assert log_path.read_text() == line
+        finally:
+            gate.touch()
+            process.communicate(timeout=10)
+    assert process.returncode == 0
+
+
+def test_packer_cancellation_waits_for_cleanup_and_keeps_the_last_messages(
+    tmp_path: Path,
+) -> None:
+    private = tmp_path / "private-build"
+    log_path = tmp_path / "packer.log"
+    child = (
+        "import os, pathlib, sys, time\n"
+        "private = pathlib.Path(sys.argv[1])\n"
+        "private.write_text(str(os.getpid()))\n"
+        "print('Waiting for WinRM', flush=True)\n"
+        "try:\n"
+        "    time.sleep(30)\n"
+        "except KeyboardInterrupt:\n"
+        "    time.sleep(0.1)\n"
+        "    private.unlink()\n"
+        "    print('Cleanly cancelled Build-secret-1234', flush=True)\n"
+        "    sys.exit(130)\n"
+    )
+    wrapper = (
+        "import os, pathlib, runpy, sys\n"
+        "sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parents[2]))\n"
+        "prepare = runpy.run_path(sys.argv[1])\n"
+        "try:\n"
+        "    prepare['run_packer']([sys.executable, '-c', sys.argv[2], sys.argv[3]], "
+        "root=pathlib.Path.cwd(), environment=dict(os.environ), "
+        "log_path=pathlib.Path(sys.argv[4]), password='Build-secret-1234')\n"
+        "except KeyboardInterrupt:\n"
+        "    sys.exit(130)\n"
+    )
+    with subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            wrapper,
+            str(RECIPE / "prepare.py"),
+            child,
+            str(private),
+            str(log_path),
+        ],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
+        child_pid = None
+        try:
+            assert process.stdout is not None
+            ready, _, _ = select.select([process.stdout], [], [], 10)
+            assert ready
+            assert process.stdout.readline() == "Waiting for WinRM\n"
+            child_pid = int(private.read_text())
+            os.kill(process.pid, signal.SIGINT)
+            output, _ = process.communicate(timeout=10)
+        finally:
+            if child_pid is not None:
+                with suppress(ProcessLookupError):
+                    os.killpg(child_pid, signal.SIGKILL)
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
+    assert process.returncode == 130
+    assert not private.exists()
+    assert output == "Cleanly cancelled <sensitive>\n"
+    assert log_path.read_text() == "Waiting for WinRM\n" + output
 
 
 def test_build_command_checks_prerequisites_before_preparing_media() -> None:
@@ -162,12 +316,10 @@ class FakeBuildTools:
         self.answer = ""
         self.driver_files: dict[str, bytes] = {}
         self.run_process = subprocess.run
+        self.run_builder = prepare.run_packer
 
     def run(self, command: list[str], **options: object) -> None:
         """Use real extraction but avoid starting a Windows installation."""
-
-        import subprocess
-        from typing import cast
 
         if command[0] == "tar":
             self.run_process(command, check=True)
@@ -180,12 +332,31 @@ class FakeBuildTools:
                 for path in (seed / "Drivers").rglob("*")
                 if path.is_file()
             }
-        if command[:2] == ["packer", "build"]:
-            environment = cast(dict[str, str], options["env"])
-            self.password = environment["PKR_VAR_build_password"]
-            self.command = command
-            if self.fail:
-                raise subprocess.CalledProcessError(1, command)
+
+    def packer(
+        self,
+        command: list[str],
+        *,
+        root: Path,
+        environment: dict[str, str],
+        log_path: Path,
+        password: str,
+    ) -> None:
+        """Run a small process through the real output and error handling."""
+
+        self.password = environment["PKR_VAR_build_password"]
+        self.command = command
+        self.run_builder(
+            [
+                sys.executable,
+                "-c",
+                f"print('Packer build'); raise SystemExit({int(self.fail)})",
+            ],
+            root=root,
+            environment=environment,
+            log_path=log_path,
+            password=password,
+        )
 
 
 @pytest.mark.parametrize("failure", [None, "extraction", "packer"])
@@ -240,6 +411,7 @@ def test_build_resolves_driver_links_and_removes_private_files(
         prepare.subprocess, "check_output", Mock(return_value=str(tmp_path / "qemu"))
     )
     monkeypatch.setattr(prepare.subprocess, "run", tools.run)
+    monkeypatch.setattr(prepare, "run_packer", tools.packer)
     monkeypatch.setenv("WINDOWS_ISO", str(iso))
     monkeypatch.delenv("PACKER_LOG", raising=False)
     if failure:

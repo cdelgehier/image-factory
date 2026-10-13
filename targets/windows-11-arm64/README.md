@@ -84,10 +84,12 @@ Build outputs:
 - `dist/windows-11-arm64/windows-11-arm64-test-report.xml` after tests
 
 The build refuses to replace an existing disk or box. Move outputs you want
-to keep before rebuilding. Packer logs are saved under `reports/`; each test
-run keeps its own Vagrant logs and removes its test machines and imported box
-after success or failure. Tests start two 8 GiB guests; 32 GiB of host RAM is
-recommended for the full test run.
+to keep before rebuilding. Packer progress is shown in the terminal and saved
+in `reports/windows-11-arm64-packer.log`. Ctrl+C asks Packer to cancel the build
+and clean up its VM; wait for the command to finish. Each test run keeps its
+own Vagrant logs and removes its test machines and imported box after success
+or failure. Tests start two 8 GiB guests; 32 GiB of host RAM is recommended for
+the full test run.
 
 ## What the image contains
 
