@@ -29,7 +29,12 @@ password if you changed it in Windows. Network Level Authentication stays on.
 
 With a supported client installed, you can also run `vagrant rdp`.
 Install your application inside Windows or add a PowerShell provisioner to
-the `Vagrantfile`. ARM64 Windows can run many x64 applications through emulation;
+the `Vagrantfile`. Start desktop applications after signing in: WinRM runs in
+a separate session, so a graphical application started there may have no visible
+window. For a portable package, copy its executable and create a shortcut during
+provisioning, then open the shortcut from the desktop.
+
+ARM64 Windows can run many x64 applications through emulation;
 check the application you need, including its drivers and integrations.
 
 ## Exchange documents
