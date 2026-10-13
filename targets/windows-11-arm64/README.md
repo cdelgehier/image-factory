@@ -97,7 +97,8 @@ Vagrant.configure("2") do |config|
       "-device", "nvme,drive=disk0,serial=image-factory"]
   end
 
-  config.vm.provision "shell", inline: "Write-Output 'Windows lab is ready'"
+  config.vm.provision "shell", privileged: false,
+    inline: "Write-Output 'Windows lab is ready'"
 end
 ```
 
@@ -114,7 +115,9 @@ later Vagrant commands. Changing the environment variable alone does not change
 the guest password. Each fresh clone starts with the initial lab password.
 
 Shared folders are disabled. Use Vagrant's `file` and PowerShell provisioners
-to copy project files into the guest. For desktop access and document exchange,
+to copy project files into the guest. The WinRM account already has admin rights;
+use `privileged: false` to avoid an extra scheduled logon during provisioning.
+For desktop access and document exchange,
 use the [RDP and encrypted SMB example](examples/desktop/README.md).
 When running several Windows VMs, assign a different fixed WinRM host port to
 each VM. Keep `auto_correct: false` for the `winrm-ssl` forwarded port. QEMU does
