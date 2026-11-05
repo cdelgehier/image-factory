@@ -73,8 +73,42 @@ def test_site_keeps_the_cumulative_catalogue_and_copies_only_public_metadata(
 
     catalogue_site.prepare_site(tmp_path)
 
-    assert list(tmp_path.iterdir()) == [tmp_path / target.catalogue_file]
+    assert {path.name for path in tmp_path.iterdir()} == {
+        "index.html",
+        target.catalogue_file,
+    }
     assert json.loads((tmp_path / target.catalogue_file).read_text()) == catalogue
+
+
+def test_index_lists_tracked_downloads_without_changing_json() -> None:
+    target = load_target()
+    catalogue = add_version(None, "v0.4.0", "ab" * 32, target)
+
+    page = catalogue_site.render_index({target.catalogue_file: catalogue})
+
+    assert f'href="{target.catalogue_file}"' in page
+    assert f'href="{catalogue["versions"][0]["providers"][0]["url"]}"' in page
+    assert f"/releases/download/v0.4.0/{target.disk.name}" not in page
+    assert 'data-umami-event="download"' in page
+    assert 'data-umami-event-architecture="arm64"' in page
+    assert 'data-umami-event-version="0.4.0"' in page
+    assert 'data-umami-event-format="box"' in page
+    assert 'src="https://stats.jackruby.qzz.io/script.js"' in page
+    assert 'data-website-id="b8aa4ed2-e140-4b1a-b748-0bcb62f2a657"' in page
+    assert 'data-domains="cdelgehier.github.io"' in page
+    assert 'data-do-not-track="true"' in page
+    assert "<script" not in json.dumps(catalogue)
+
+
+def test_index_escapes_published_descriptions() -> None:
+    target = load_target()
+    catalogue = add_version(None, "v0.4.0", "ab" * 32, target)
+    catalogue["description"] = '<img src=x onerror="alert(1)">'
+
+    page = catalogue_site.render_index({target.catalogue_file: catalogue})
+
+    assert '<img src=x onerror="alert(1)">' not in page
+    assert "&lt;img" in page
 
 
 @pytest.mark.parametrize("field", ["draft", "prerelease"])
