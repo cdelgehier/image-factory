@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from email.message import Message
 from pathlib import Path
 from unittest.mock import Mock
@@ -75,9 +76,43 @@ def test_site_keeps_the_cumulative_catalogue_and_copies_only_public_metadata(
 
     assert {path.name for path in tmp_path.iterdir()} == {
         "index.html",
+        "404.html",
         target.catalogue_file,
     }
     assert json.loads((tmp_path / target.catalogue_file).read_text()) == catalogue
+
+
+@pytest.mark.parametrize(
+    ("destination", "url"),
+    [
+        ("github", "https://github.com/cdelgehier/image-factory"),
+        ("releases", "https://github.com/cdelgehier/image-factory/releases"),
+        ("documentation", "https://github.com/cdelgehier/image-factory/tree/main/docs"),
+        ("releases", "https://github.com/cdelgehier/image-factory/releases/tag/v0.4.0"),
+    ],
+)
+def test_index_tracks_project_links(destination: str, url: str) -> None:
+    target = load_target()
+    catalogue = add_version(None, "v0.4.0", "ab" * 32, target)
+
+    page = catalogue_site.render_index({target.catalogue_file: catalogue})
+
+    link = next(
+        tag for tag in re.findall(r"<a\b[^>]*>", page) if f'href="{url}"' in tag
+    )
+    assert 'data-umami-event="outbound-link"' in link
+    assert f'data-umami-event-destination="{destination}"' in link
+
+
+def test_missing_page_links_back_to_the_catalogue_and_uses_private_safe_analytics() -> (
+    None
+):
+    page = catalogue_site.render_not_found()
+
+    assert "<title>Page not found" in page
+    assert 'href="/image-factory/"' in page
+    assert 'data-before-send="imageFactoryBeforeSend"' in page
+    assert 'src="https://stats.jackruby.qzz.io/script.js"' in page
 
 
 def test_index_lists_tracked_downloads_without_changing_json() -> None:

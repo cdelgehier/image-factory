@@ -65,6 +65,7 @@ def prepare_site(directory: Path) -> None:
     for filename, catalogue in catalogues.items():
         (directory / filename).write_text(json.dumps(catalogue, indent=2) + "\n")
     (directory / "index.html").write_text(render_index(catalogues))
+    (directory / "404.html").write_text(render_not_found())
 
 
 def render_index(catalogues: dict[str, dict[str, Any]]) -> str:
@@ -94,10 +95,29 @@ def render_index(catalogues: dict[str, dict[str, Any]]) -> str:
 <p>Version {version} · {architecture} · QEMU / libvirt</p>
 <p class="downloads">{download}</p>
 <p><a href="{escape(filename)}">Vagrant JSON catalogue</a> ·
-<a href="https://github.com/{REPOSITORY}/releases/tag/v{version}">Release notes</a></p>
+<a href="https://github.com/{REPOSITORY}/releases/tag/v{version}"
+data-umami-event="outbound-link" data-umami-event-destination="releases"
+data-umami-event-version="{version}">Release notes</a></p>
 <details><summary>SHA-256 of the .box archive</summary>
 <code>{escape(provider["checksum"])}</code></details>
 </article>""")
+    return render_page("Image Factory — QEMU images", "".join(cards))
+
+
+def render_not_found() -> str:
+    """Count missing pages without collecting unknown paths or URL parameters."""
+
+    return render_page(
+        "Page not found — Image Factory",
+        "<h2>Page not found</h2><p>This catalogue page does not exist.</p>"
+        '<p><a href="/image-factory/">Back to the image catalogue</a></p>',
+        not_found=True,
+    )
+
+
+def render_page(title: str, content: str, *, not_found: bool = False) -> str:
+    """Share project links and tracker privacy rules across generated pages."""
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -105,11 +125,28 @@ def render_index(catalogues: dict[str, dict[str, Any]]) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="description" content="Tested ARM64 images for QEMU and Vagrant.">
-<title>Image Factory — QEMU images</title>
+<title>{escape(title)}</title>
+<script>
+function imageFactoryBeforeSend(type, payload) {{
+  if (type !== 'event') return null;
+  const url = new URL(payload.url, location.origin);
+  if (url.origin !== 'https://cdelgehier.github.io' ||
+      !url.pathname.startsWith('/image-factory/')) return null;
+  payload.url = {str(not_found).lower()} ? '{SITE_URL}404' : url.origin + url.pathname;
+  if ({str(not_found).lower()} && !payload.name) payload.name = 'page-not-found';
+  if (payload.referrer) {{
+    const referrer = new URL(payload.referrer, location.origin);
+    payload.referrer = ['http:', 'https:'].includes(referrer.protocol) ? referrer.origin + '/' : '';
+  }}
+  delete payload.id;
+  return payload;
+}}
+</script>
 <script defer src="https://stats.jackruby.qzz.io/script.js"
   data-website-id="b8aa4ed2-e140-4b1a-b748-0bcb62f2a657"
   data-domains="cdelgehier.github.io" data-do-not-track="true"
-  data-exclude-search="true" data-exclude-hash="true"></script>
+  data-exclude-search="true" data-exclude-hash="true"
+  data-before-send="imageFactoryBeforeSend"></script>
 <style>
 :root {{ color-scheme: light dark; font-family: system-ui, sans-serif; }}
 body {{ max-width: 58rem; margin: auto; padding: 2rem 1rem; line-height: 1.6; }}
@@ -122,9 +159,16 @@ footer {{ margin-top: 2rem; font-size: .9rem; }}
 <body>
 <header><h1>Image Factory</h1>
 <p>Tested ARM64 images for QEMU, libvirt and Vagrant.</p>
-<p><a href="https://github.com/{REPOSITORY}">Source code and installation instructions</a></p></header>
-<main>{"".join(cards)}</main>
-<footer>Visits and download clicks are measured with self-hosted Umami, without cookies.
+<nav aria-label="Project links">
+<a href="https://github.com/{REPOSITORY}" data-umami-event="outbound-link"
+data-umami-event-destination="github">GitHub</a> ·
+<a href="https://github.com/{REPOSITORY}/releases" data-umami-event="outbound-link"
+data-umami-event-destination="releases">Releases</a> ·
+<a href="https://github.com/{REPOSITORY}/tree/main/docs" data-umami-event="outbound-link"
+data-umami-event-destination="documentation">Documentation</a>
+</nav></header>
+<main>{content}</main>
+<footer>Visits, missing pages, project links and download clicks are measured with self-hosted Umami, without cookies.
 Browser Do Not Track is respected. Direct Vagrant and command-line downloads are not measured.</footer>
 </body>
 </html>
