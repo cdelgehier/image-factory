@@ -99,6 +99,13 @@ fragments. Download clicks include the image name, version, architecture and
 format. A click does not prove that the download finished; direct Vagrant,
 `curl` and `wget` requests do not run the tracker.
 
+Project links record `outbound-link` with `destination` set to `github`, `releases`
+or `documentation`. Release-note links also include the version. GitHub Pages
+serves a generated `404.html` for missing project pages. Its first page view becomes
+a `page-not-found` event at `/image-factory/404`, without the unknown path or URL
+parameters. Referrers keep only the source origin. These are browser events, so
+missing API/JSON requests and command-line clients are not counted.
+
 Deploy Umami from `cdelgehier/k3s-homelab` before publishing this change. Local
 previews do not send analytics. Rebuild the Pages site with the existing
 `Vagrant catalogue` workflow after deployment.
