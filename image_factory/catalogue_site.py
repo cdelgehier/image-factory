@@ -9,6 +9,7 @@ import argparse
 import json
 import re
 import tempfile
+from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
@@ -63,6 +64,71 @@ def prepare_site(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     for filename, catalogue in catalogues.items():
         (directory / filename).write_text(json.dumps(catalogue, indent=2) + "\n")
+    (directory / "index.html").write_text(render_index(catalogues))
+
+
+def render_index(catalogues: dict[str, dict[str, Any]]) -> str:
+    """List validated release assets and measure browser download clicks.
+
+    The JSON catalogues stay unchanged for Vagrant. Only the HTML page
+    loads the tracker; direct CLI downloads do not run JavaScript.
+    """
+
+    cards = []
+    for filename, catalogue in sorted(catalogues.items()):
+        latest = catalogue["versions"][0]
+        provider = latest["providers"][0]
+        name = escape(catalogue["name"])
+        version = escape(latest["version"])
+        architecture = escape(provider["architecture"])
+        download = (
+            f'<a href="{escape(provider["url"])}" target="_blank" rel="noopener noreferrer" '
+            f'data-umami-event="download" data-umami-event-image="{name}" '
+            f'data-umami-event-version="{version}" '
+            f'data-umami-event-architecture="{architecture}" '
+            'data-umami-event-format="box">Download .box</a>'
+        )
+        cards.append(f"""<article>
+<h2>{name}</h2>
+<p>{escape(catalogue.get("description", ""))}</p>
+<p>Version {version} · {architecture} · QEMU / libvirt</p>
+<p class="downloads">{download}</p>
+<p><a href="{escape(filename)}">Vagrant JSON catalogue</a> ·
+<a href="https://github.com/{REPOSITORY}/releases/tag/v{version}">Release notes</a></p>
+<details><summary>SHA-256 of the .box archive</summary>
+<code>{escape(provider["checksum"])}</code></details>
+</article>""")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="description" content="Tested ARM64 images for QEMU and Vagrant.">
+<title>Image Factory — QEMU images</title>
+<script defer src="https://stats.jackruby.qzz.io/script.js"
+  data-website-id="b8aa4ed2-e140-4b1a-b748-0bcb62f2a657"
+  data-domains="cdelgehier.github.io" data-do-not-track="true"
+  data-exclude-search="true" data-exclude-hash="true"></script>
+<style>
+:root {{ color-scheme: light dark; font-family: system-ui, sans-serif; }}
+body {{ max-width: 58rem; margin: auto; padding: 2rem 1rem; line-height: 1.6; }}
+article {{ border: 1px solid #8888; border-radius: .5rem; padding: 1.5rem; margin: 1.5rem 0; }}
+a {{ color: light-dark(#174ea6, #9ec5ff); }}
+code {{ overflow-wrap: anywhere; }}
+footer {{ margin-top: 2rem; font-size: .9rem; }}
+</style>
+</head>
+<body>
+<header><h1>Image Factory</h1>
+<p>Tested ARM64 images for QEMU, libvirt and Vagrant.</p>
+<p><a href="https://github.com/{REPOSITORY}">Source code and installation instructions</a></p></header>
+<main>{"".join(cards)}</main>
+<footer>Visits and download clicks are measured with self-hosted Umami, without cookies.
+Browser Do Not Track is respected. Direct Vagrant and command-line downloads are not measured.</footer>
+</body>
+</html>
+"""
 
 
 def read_remote_catalogue(url: str) -> dict[str, Any]:

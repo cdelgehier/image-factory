@@ -85,3 +85,20 @@ Build outputs are stored in
 
 The [MIT license](LICENSE) covers the repository tools. Distribution packages
 keep their own licenses.
+
+## Browser catalogue and analytics
+
+GitHub Pages publishes a small HTML landing page alongside the Vagrant JSON
+catalogues. It lists the latest validated `.box` release assets for QEMU and libvirt.
+The JSON files and their stable URLs stay unchanged.
+
+The page uses self-hosted Umami at `https://stats.jackruby.qzz.io` with website
+ID `b8aa4ed2-e140-4b1a-b748-0bcb62f2a657`. The tracker runs only on
+`cdelgehier.github.io`, respects Do Not Track and excludes query strings and
+fragments. Download clicks include the image name, version, architecture and
+format. A click does not prove that the download finished; direct Vagrant,
+`curl` and `wget` requests do not run the tracker.
+
+Deploy Umami from `cdelgehier/k3s-homelab` before publishing this change. Local
+previews do not send analytics. Rebuild the Pages site with the existing
+`Vagrant catalogue` workflow after deployment.
