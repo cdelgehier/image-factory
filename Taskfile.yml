@@ -75,6 +75,9 @@ tasks:
     requires:
       vars: [TAG]
     cmd: uv run --locked python -m image_factory.signatures verify --tag {{shellQuote .TAG}}
+  release:audit:
+    desc: Download and validate the latest published box and its public catalogue
+    cmd: uv run --locked python -m image_factory.audit
   version:bump:
     cmd: bash scripts/version.sh
   pre-commit:install:

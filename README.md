@@ -12,6 +12,17 @@ The existing source, commit, tool versions and disk checksums remain available.
 New public releases also sign the box and manifest with cosign. See
 [Verify a released box](docs/verifying-boxes.md) for the commands and trust policy.
 
+The weekly `Published box audit` checks the public catalogue against the latest
+release, downloads its box and records, and validates checksums, signatures,
+the test report and the standalone QCOW2 disk. It also runs manually with
+`task release:audit TARGET=debian-13-arm64` (requires cosign and qemu-img).
+Releases built before signing support are explicitly reported as `legacy_unsigned`.
+The audit reads the tagged source tree to determine whether signing was available;
+tags containing `image_factory/signatures.py` require both bundles. Missing
+bundles or unavailable source metadata never trigger an unsigned fallback.
+Downloads are limited to 2 GiB per box and 4 MiB per record; archive extraction
+is limited to 8 GiB. The audit does not rebuild images or boot guest VMs.
+
 | Target | Guest | Usage guide |
 | --- | --- | --- |
 | `debian-13-arm64` (default) | Debian 13 | [Debian README](targets/debian-13-arm64/README.md) |
