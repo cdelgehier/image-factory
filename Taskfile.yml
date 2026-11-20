@@ -65,6 +65,16 @@ tasks:
     requires:
       vars: [TAG]
     cmd: uv run --locked python -m image_factory.release publish {{shellQuote .TAG}}
+  release:sign:
+    desc: Sign the tested public box and manifest in tagged release CI
+    requires:
+      vars: [TAG]
+    cmd: uv run --locked python -m image_factory.signatures sign --tag {{shellQuote .TAG}}
+  release:verify:
+    desc: Verify the box and manifest against their tagged release workflow
+    requires:
+      vars: [TAG]
+    cmd: uv run --locked python -m image_factory.signatures verify --tag {{shellQuote .TAG}}
   version:bump:
     cmd: bash scripts/version.sh
   pre-commit:install:

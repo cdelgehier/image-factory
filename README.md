@@ -9,6 +9,9 @@ Build manifests include `schema_version: 1`, `built_at` in UTC and `build_url`.
 The URL points to the exact GitHub Actions run attempt; local builds use `null`.
 The existing source, commit, tool versions and disk checksums remain available.
 
+New public releases also sign the box and manifest with cosign. See
+[Verify a released box](docs/verifying-boxes.md) for the commands and trust policy.
+
 | Target | Guest | Usage guide |
 | --- | --- | --- |
 | `debian-13-arm64` (default) | Debian 13 | [Debian README](targets/debian-13-arm64/README.md) |

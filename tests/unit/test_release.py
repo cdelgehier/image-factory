@@ -32,7 +32,7 @@ def test_release_rejects_a_local_recipe_before_reading_its_files() -> None:
 
 
 @pytest.fixture
-def tested_target(tmp_path: Path) -> Target:
+def tested_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Target:
     """Create matching release records without building or booting a guest.
 
     The fixture uses a real archive and real hashes so each test can change
@@ -40,6 +40,8 @@ def tested_target(tmp_path: Path) -> Target:
     """
 
     target = load_target().model_copy(update={"root": tmp_path})
+    # Certificate validation is tested at the cosign boundary in test_signatures.
+    monkeypatch.setattr(release, "verify_target", Mock())
     target.dist.mkdir(parents=True)
     metadata = {
         "provider": "libvirt",
@@ -80,6 +82,8 @@ def tested_target(tmp_path: Path) -> Target:
     target.report.write_text(
         '<testsuites><testsuite tests="7" failures="0" errors="0" skipped="0"/></testsuites>'
     )
+    for artifact in (target.box, target.manifest):
+        Path(str(artifact) + ".bundle").write_text("signature bundle")
     return target
 
 
@@ -94,6 +98,8 @@ def test_release_assets_have_unique_names_and_a_matching_catalogue(
         "debian-13-arm64-build-manifest.json",
         "debian-13-arm64-test-report.xml",
         "debian-13-arm64.json",
+        "debian-13-arm64.box.bundle",
+        "debian-13-arm64-build-manifest.json.bundle",
     }
     catalogue = json.loads(
         (tested_target.dist / tested_target.catalogue_file).read_text()
@@ -104,6 +110,19 @@ def test_release_assets_have_unique_names_and_a_matching_catalogue(
         and provider["architecture"] == tested_target.architecture
         for provider in catalogue["versions"][0]["providers"]
     )
+
+
+def test_invalid_signatures_stop_release_asset_preparation(
+    tested_target: Target, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        release, "verify_target", Mock(side_effect=ValueError("invalid signature"))
+    )
+    catalogue = Mock()
+    monkeypatch.setattr(release, "previous_catalogue", catalogue)
+    with pytest.raises(ValueError, match="invalid signature"):
+        release.checked_assets("v0.2.0", "ab" * 20, tested_target)
+    assert not catalogue.called
 
 
 @pytest.mark.parametrize(
