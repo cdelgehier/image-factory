@@ -5,6 +5,10 @@ GitHub Actions. Each target owns its source, preparation scripts and guest
 checks. Releases include the box, checksum, build manifest, test report and
 Vagrant catalogue.
 
+Build manifests include `schema_version: 1`, `built_at` in UTC and `build_url`.
+The URL points to the exact GitHub Actions run attempt; local builds use `null`.
+The existing source, commit, tool versions and disk checksums remain available.
+
 | Target | Guest | Usage guide |
 | --- | --- | --- |
 | `debian-13-arm64` (default) | Debian 13 | [Debian README](targets/debian-13-arm64/README.md) |
