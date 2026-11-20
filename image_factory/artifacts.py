@@ -6,18 +6,49 @@ The manifest records this link so publication can check the same files again.
 
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import tarfile as tar
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from image_factory.catalogue import validate_asset
 from image_factory.sources import BuildSource, Source
 from image_factory.targets import Target, load_target
+
+
+class BuildProvenance(BaseModel):
+    """Link a manifest to its creation time and, when available, its CI run."""
+
+    schema_version: Literal[1] = 1
+    built_at: AwareDatetime
+    build_url: str | None = None
+
+
+def build_provenance() -> BuildProvenance:
+    """Record local builds honestly and link CI builds to their exact attempt."""
+
+    build_url = None
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        repository = os.environ.get("GITHUB_REPOSITORY", "")
+        run_id = os.environ.get("GITHUB_RUN_ID", "")
+        attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+        if (
+            not re.fullmatch(r"[\w.-]+/[\w.-]+", repository)
+            or not re.fullmatch(r"[1-9][0-9]*", run_id)
+            or not re.fullmatch(r"[1-9][0-9]*", attempt)
+        ):
+            raise ValueError("Invalid GitHub build reference")
+        build_url = (
+            f"https://github.com/{repository}/actions/runs/{run_id}/attempts/{attempt}"
+        )
+    return BuildProvenance(built_at=datetime.now(UTC), build_url=build_url)
 
 
 class BoxDisk(BaseModel):
@@ -210,6 +241,7 @@ def main() -> None:
     )
     # Record both hashes: the archive and its disk are checked at different stages.
     manifest = {
+        **build_provenance().model_dump(mode="json"),
         "source": source.source.model_dump(),
         "source_checksum_verified": source.checksum_verified,
         "target": target.name,
