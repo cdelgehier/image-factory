@@ -23,6 +23,7 @@ from image_factory.catalogue import (
     validate_asset,
     version_key,
 )
+from image_factory.signatures import signature_files, verify_target
 from image_factory.targets import Target, enabled_targets
 
 
@@ -180,6 +181,7 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
 
     if target.publication == "local":
         raise ValueError("Cannot publish a local recipe")
+    verify_target(target, tag)
     manifest = json.loads(target.manifest.read_text())
     validate_manifest(manifest, target)
     if manifest["commit"] != head:
@@ -213,6 +215,7 @@ def checked_assets(tag: str, head: str, target: Target) -> list[Path]:
         target.manifest,
         target.report,
         catalogue_path,
+        *signature_files(target),
     ]
 
 
